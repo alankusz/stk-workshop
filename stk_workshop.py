@@ -225,8 +225,20 @@ with st.sidebar:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
+        try:
+            from stk_export import build_profile_docx
+            docx_bytes = build_profile_docx(profile_obj, assessment_obj)
+            st.download_button(
+                "Pobierz DOCX (raport z wykresem)",
+                data=docx_bytes,
+                file_name=f"profil_{safe_name}.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        except Exception as _e:
+            st.caption(f"DOCX niedostępny: {_e}")
+
         if not assessment_obj:
-            st.caption("Uzupełnij Analizę potrzeb (zakładka 2), aby XLSX zawierał też lukę kompetencyjną.")
+            st.caption("Uzupełnij Analizę potrzeb (zakładka 2), aby raporty zawierały lukę kompetencyjną.")
     else:
         st.info("Wygeneruj profil (zakładka 1), aby pobrać wyniki.")
 
