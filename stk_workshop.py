@@ -448,6 +448,41 @@ with tab1:
                             f"<b>{lk}. {LEVEL_LABELS[lk]}</b><br><br>{desc}</div>",
                             unsafe_allow_html=True,
                         )
+                with st.expander("✏️ Edytuj opisy", expanded=False):
+                    st.text_area(
+                        "Definicja",
+                        value=comp.definition,
+                        key=f"edit_def_{i}",
+                        height=80,
+                    )
+                    st.text_area(
+                        "Wskaźniki behawioralne (jeden na linię)",
+                        value="\n".join(comp.indicators),
+                        key=f"edit_ind_{i}",
+                        height=100,
+                    )
+                    lv_cols = st.columns(5)
+                    for j, lk in enumerate(LEVEL_KEYS):
+                        with lv_cols[j]:
+                            st.text_area(
+                                f"Poziom {lk} — {LEVEL_LABELS[lk]}",
+                                value=comp.get_level_description(lk),
+                                key=f"edit_lv_{i}_{lk}",
+                                height=130,
+                            )
+                    if st.button("Zastosuj zmiany", key=f"apply_edit_{i}"):
+                        comp.definition = st.session_state[f"edit_def_{i}"]
+                        comp.indicators = [
+                            x.strip() for x in
+                            st.session_state[f"edit_ind_{i}"].splitlines()
+                            if x.strip()
+                        ]
+                        for lk in LEVEL_KEYS:
+                            setattr(comp, f"level_{lk}",
+                                    st.session_state[f"edit_lv_{i}_{lk}"])
+                        st.session_state["profile"] = profile
+                        st.rerun()
+
                 if st.button(f"Usuń kompetencję '{comp.name}'", key=f"rm_comp_{i}"):
                     comp_to_remove = i
 
