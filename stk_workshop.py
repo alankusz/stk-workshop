@@ -1,7 +1,7 @@
 """
 Asystent STK — Aplikacja Warsztatowa
-Budowanie profilu kompetencji i analiza potrzeb szkoleniowych.
-Wynik: JSON (import do Asystenta STK Trenera) + XLSX (czytelny raport).
+Budowanie profili kompetencji dla wielu stanowisk + analiza potrzeb (poziom oczekiwany).
+Wynik: JSON (import do Asystenta STK Trenera) + XLSX + DOCX z wykresem radarowym.
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ from stk_ai import generate_competency_profile, generate_single_competency
 
 
 # ---------------------------------------------------------------------------
-# Eksport XLSX
+# Kolory EA
 # ---------------------------------------------------------------------------
 _NAVY = "1B4F8A"
 _LIGHT = "E8F0FB"
@@ -32,16 +32,19 @@ _AMBER = "FFF0CC"
 _GREEN = "CCFFCC"
 
 
+# ---------------------------------------------------------------------------
+# Eksport XLSX (pojedyncze stanowisko — czytelny raport)
+# ---------------------------------------------------------------------------
 def _hdr(ws, row: int, col: int, text: str) -> None:
     c = ws.cell(row=row, column=col, value=text)
-    c.font = Font(name="Arial", bold=True, color="FFFFFF", size=10)
+    c.font = Font(name="Montserrat", bold=True, color="FFFFFF", size=10)
     c.fill = PatternFill("solid", fgColor=_NAVY)
     c.alignment = Alignment(wrap_text=True, vertical="top")
 
 
 def _cell(ws, row: int, col: int, value, bold: bool = False, bg: str | None = None) -> None:
     c = ws.cell(row=row, column=col, value=value)
-    c.font = Font(name="Arial", bold=bold, size=10)
+    c.font = Font(name="Montserrat", bold=bold, size=10)
     if bg:
         c.fill = PatternFill("solid", fgColor=bg)
     c.alignment = Alignment(wrap_text=True, vertical="top")
@@ -53,16 +56,12 @@ def build_workshop_xlsx(
 ) -> bytes:
     wb = Workbook()
 
-    # ------------------------------------------------------------------ #
-    # Arkusz 1: Profil kompetencji
-    # ------------------------------------------------------------------ #
     ws1 = wb.active
     ws1.title = "Profil_kompetencji"
-
     ws1.merge_cells("A1:I1")
     t = ws1.cell(row=1, column=1,
                  value=f"Profil kompetencji — {profile.company.position_name} ({profile.company.company_name})")
-    t.font = Font(name="Arial", bold=True, size=13, color="FFFFFF")
+    t.font = Font(name="Montserrat", bold=True, size=13, color="FFFFFF")
     t.fill = PatternFill("solid", fgColor=_NAVY)
     t.alignment = Alignment(horizontal="center")
     ws1.row_dimensions[1].height = 24
@@ -103,46 +102,74 @@ def build_workshop_xlsx(
     for col, w in enumerate([4, 22, 14, 36, 28, 28, 28, 28, 28], 1):
         ws1.column_dimensions[get_column_letter(col)].width = w
 
-    # ------------------------------------------------------------------ #
-    # Arkusz 2: Analiza potrzeb
-    # ------------------------------------------------------------------ #
     if assessment:
         ws2 = wb.create_sheet("Analiza_potrzeb")
-        ws2.merge_cells("A1:G1")
+        ws2.merge_cells("A1:F1")
         t2 = ws2.cell(
             row=1, column=1,
             value=f"Analiza potrzeb — {assessment.assessor_name} ({assessment.assessor_role})"
         )
-        t2.font = Font(name="Arial", bold=True, size=13, color="FFFFFF")
+        t2.font = Font(name="Montserrat", bold=True, size=13, color="FFFFFF")
         t2.fill = PatternFill("solid", fgColor=_NAVY)
         t2.alignment = Alignment(horizontal="center")
         ws2.row_dimensions[1].height = 24
 
         for col, h in enumerate([
-            "Lp.", "Kompetencja", "Aktualny poziom", "Pożądany poziom",
-            "Luka", "Ważność (1-5)", "Priorytet",
+            "Lp.", "Kompetencja", "Poziom oczekiwany", "Ważność (1-5)", "Priorytet (waga × poziom)",
         ], 1):
             _hdr(ws2, 2, col, h)
 
-        sorted_items = sorted(assessment.items, key=lambda x: x.priority_score, reverse=True)
+        sorted_items = sorted(assessment.items, key=lambda x: x.desired_level * x.importance, reverse=True)
         for i, item in enumerate(sorted_items, 1):
             r = i + 2
             bg = _LIGHT if i % 2 == 0 else None
-            gap_bg = _RED if item.gap >= 2 else (_AMBER if item.gap == 1 else _GREEN)
             _cell(ws2, r, 1, i, bg=bg)
             _cell(ws2, r, 2, item.competency_name, bold=True, bg=bg)
-            _cell(ws2, r, 3, f"{item.current_level} — {LEVEL_LABELS[item.current_level]}", bg=bg)
-            _cell(ws2, r, 4, f"{item.desired_level} — {LEVEL_LABELS[item.desired_level]}", bg=bg)
-            _cell(ws2, r, 5, item.gap, bg=gap_bg)
-            _cell(ws2, r, 6, item.importance, bg=bg)
-            _cell(ws2, r, 7, item.priority_score, bg=bg)
+            _cell(ws2, r, 3, f"{item.desired_level} — {LEVEL_LABELS[item.desired_level]}", bg=bg)
+            _cell(ws2, r, 4, item.importance, bg=bg)
+            _cell(ws2, r, 5, item.desired_level * item.importance, bg=bg)
 
-        for col, w in enumerate([4, 28, 22, 22, 8, 12, 10], 1):
+        for col, w in enumerate([4, 30, 26, 12, 18], 1):
             ws2.column_dimensions[get_column_letter(col)].width = w
 
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# Eksport JSON wielu stanowisk
+# ---------------------------------------------------------------------------
+def build_positions_json(positions: list[dict]) -> str:
+    """Eksportuje listę stanowisk do JSON dla trenera (stk_app.py tab6)."""
+    exported = []
+    for entry in positions:
+        p: CompetencyProfile = entry["profile"]
+        na: NeedsAssessment | None = entry["needs"]
+        pos_data: dict = {"profile": p.to_json()}
+        if na:
+            pos_data["needs_assessment"] = na.to_json()
+        exported.append(pos_data)
+    return json.dumps({"version": 2, "positions": exported}, ensure_ascii=False, indent=2)
+
+
+# ---------------------------------------------------------------------------
+# Resetowanie formularza
+# ---------------------------------------------------------------------------
+def _reset_form() -> None:
+    """Usuwa klucze aktualnie edytowanego stanowiska z session_state."""
+    keys_to_clear = [
+        "profile", "needs_assessment", "company", "custom_competencies",
+        "c_name", "c_industry", "c_size", "c_level", "c_culture",
+        "c_position", "c_tasks", "c_extra", "custom_comp_name",
+        "assess_name",
+    ]
+    for key in keys_to_clear:
+        st.session_state.pop(key, None)
+    # Dynamiczne klucze widgetów
+    for key in list(st.session_state.keys()):
+        if key.startswith(("cat_select_", "des_", "imp_", "rm_comp_", "rm_custom_")):
+            del st.session_state[key]
 
 
 # ---------------------------------------------------------------------------
@@ -153,6 +180,14 @@ st.set_page_config(
     page_icon="🗺️",
     layout="wide",
 )
+
+# ---------------------------------------------------------------------------
+# Session state
+# ---------------------------------------------------------------------------
+if "saved_positions" not in st.session_state:
+    st.session_state["saved_positions"] = []
+if "custom_competencies" not in st.session_state:
+    st.session_state["custom_competencies"] = []
 
 # ---------------------------------------------------------------------------
 # Sidebar
@@ -186,61 +221,80 @@ with st.sidebar:
     st.markdown(
         "**Jak korzystać:**\n\n"
         "1. **Zakładka 1** — opisz firmę, wybierz kompetencje, wygeneruj opisy\n"
-        "2. **Zakładka 2** — oceń poziomy (aktualny vs pożądany)\n"
-        "3. **Pobierz pliki** poniżej i wyślij trenerowi\n\n"
+        "2. **Zakładka 2** — ustaw poziomy oczekiwane, zapisz stanowisko\n"
+        "3. **Powtórz** dla każdego stanowiska\n"
+        "4. **Pobierz pliki** poniżej i wyślij trenerowi\n\n"
         "*Enterprise Advisors*"
     )
 
     st.divider()
-    st.subheader("Pobierz wyniki")
 
-    profile_ready = "profile" in st.session_state
+    saved: list[dict] = st.session_state["saved_positions"]
 
-    if profile_ready:
-        profile_obj: CompetencyProfile = st.session_state["profile"]
-        assessment_obj = st.session_state.get("needs_assessment")
+    if saved:
+        st.subheader(f"Zapisane stanowiska ({len(saved)})")
+        to_del = []
+        for idx, entry in enumerate(saved):
+            p = entry["profile"]
+            col_a, col_b = st.columns([4, 1])
+            col_a.markdown(f"**{idx+1}.** {p.company.position_name}")
+            col_a.caption(f"{p.company.company_name} · {len(p.competencies)} kompetencji")
+            if col_b.button("✕", key=f"del_pos_{idx}"):
+                to_del.append(idx)
+        for idx in reversed(to_del):
+            st.session_state["saved_positions"].pop(idx)
+        if to_del:
+            st.rerun()
 
-        state_data: dict = {"profile": profile_obj.to_json()}
-        if assessment_obj:
-            state_data["needs_assessment"] = assessment_obj.to_json()
+        if st.button("Usuń wszystkie", key="clear_all_positions"):
+            st.session_state["saved_positions"] = []
+            st.rerun()
 
-        safe_name = (
-            f"{profile_obj.company.company_name}_{profile_obj.company.position_name}"
-            .replace(" ", "_").replace("/", "-")
-        )
+        st.divider()
+        st.subheader("Pobierz wszystkie stanowiska")
 
+        safe_base = saved[0]["profile"].company.company_name.replace(" ", "_") if saved else "warsztat"
+
+        # JSON — dla trenera
+        json_str = build_positions_json(saved)
         st.download_button(
             "Pobierz JSON (dla trenera)",
-            data=json.dumps(state_data, ensure_ascii=False, indent=2).encode("utf-8"),
-            file_name=f"profil_{safe_name}.json",
+            data=json_str.encode("utf-8"),
+            file_name=f"profile_{safe_base}.json",
             mime="application/json",
             type="primary",
         )
 
-        xlsx_bytes = build_workshop_xlsx(profile_obj, assessment_obj)
-        st.download_button(
-            "Pobierz XLSX (raport czytelny)",
-            data=xlsx_bytes,
-            file_name=f"profil_{safe_name}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
-
+        # XLSX zbiorczy
         try:
-            from stk_export import build_profile_docx
-            docx_bytes = build_profile_docx(profile_obj, assessment_obj)
+            from stk_export import build_combined_xlsx
+            profiles_list = [e["profile"] for e in saved]
+            xlsx_bytes = build_combined_xlsx(profiles_list)
             st.download_button(
-                "Pobierz DOCX (raport z wykresem)",
+                "Pobierz XLSX (zbiorczy)",
+                data=xlsx_bytes,
+                file_name=f"profile_{safe_base}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        except Exception as e:
+            st.caption(f"XLSX niedostępny: {e}")
+
+        # DOCX zbiorczy z wykresami
+        try:
+            from stk_export import build_combined_docx
+            needs_list = [e["needs"] for e in saved]
+            docx_bytes = build_combined_docx(profiles_list, needs_list)
+            st.download_button(
+                "Pobierz DOCX (raport z wykresami)",
                 data=docx_bytes,
-                file_name=f"profil_{safe_name}.docx",
+                file_name=f"Mapa_Kompetencji_{safe_base}.docx",
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             )
-        except Exception as _e:
-            st.caption(f"DOCX niedostępny: {_e}")
+        except Exception as e:
+            st.caption(f"DOCX niedostępny: {e}")
 
-        if not assessment_obj:
-            st.caption("Uzupełnij Analizę potrzeb (zakładka 2), aby raporty zawierały lukę kompetencyjną.")
     else:
-        st.info("Wygeneruj profil (zakładka 1), aby pobrać wyniki.")
+        st.info("Brak zapisanych stanowisk.\nUzupełnij profil i zapisz (zakładka 2).")
 
 
 # ---------------------------------------------------------------------------
@@ -254,6 +308,12 @@ tab1, tab2 = st.tabs(["1. Profil kompetencji", "2. Analiza potrzeb"])
 # ===========================================================================
 with tab1:
     st.header("Profiler kompetencji")
+
+    if st.session_state["saved_positions"]:
+        st.info(
+            f"Zapisano {len(st.session_state['saved_positions'])} stanowisk. "
+            "Możesz dodać kolejne lub pobrać wyniki z panelu bocznego."
+        )
 
     st.subheader("Krok 1: Firma i stanowisko")
     col1, col2 = st.columns(2)
@@ -306,9 +366,6 @@ with tab1:
         st.write("")
         add_custom = st.button("Dodaj do listy", key="add_custom_btn")
 
-    if "custom_competencies" not in st.session_state:
-        st.session_state["custom_competencies"] = []
-
     if add_custom and custom_name.strip():
         if custom_name.strip() not in st.session_state["custom_competencies"]:
             st.session_state["custom_competencies"].append(custom_name.strip())
@@ -357,7 +414,7 @@ with tab1:
                     st.session_state["company"] = company
                     st.success(
                         f"Wygenerowano {len(profile.competencies)} kompetencji. "
-                        "Przejdź do zakładki 2 → Analiza potrzeb."
+                        "Przejdź do zakładki 2 → ustaw poziomy oczekiwane i zapisz stanowisko."
                     )
                 except Exception as e:
                     st.error(f"Błąd: {e}")
@@ -426,80 +483,106 @@ with tab1:
 
 
 # ===========================================================================
-# ZAKŁADKA 2: Analiza potrzeb
+# ZAKŁADKA 2: Analiza potrzeb — tylko poziom oczekiwany
 # ===========================================================================
 with tab2:
     st.header("Analiza potrzeb szkoleniowych")
+    st.caption(
+        "Ustaw **poziom oczekiwany** dla każdej kompetencji (1-5). "
+        "Poziom aktualny zostanie określony na podstawie wyników testu STK."
+    )
 
     if "profile" not in st.session_state:
         st.info("Najpierw wygeneruj profil kompetencji w zakładce 1.")
-        st.stop()
+    else:
+        profile: CompetencyProfile = st.session_state["profile"]
 
-    profile: CompetencyProfile = st.session_state["profile"]
-    st.markdown(
-        "Oceń **aktualny** i **pożądany** poziom każdej kompetencji (1-5). "
-        "System wyliczy lukę kompetencyjną i priorytet szkoleniowy."
-    )
-
-    assessor_name = st.text_input("Imię i nazwisko oceniającego", key="assess_name")
-    assessor_role = st.selectbox(
-        "Rola", ["przełożony", "uczestnik (samoocena)", "trener"], key="assess_role"
-    )
-    st.divider()
-
-    needs_items: list[NeedsAssessmentItem] = []
-    for i, comp in enumerate(profile.competencies):
-        col1, col2, col3, col4 = st.columns([3, 1.5, 1.5, 1])
-        with col1:
-            st.markdown(f"**{comp.name}**")
-        with col2:
-            current = st.select_slider(
-                "Aktualny", options=[1, 2, 3, 4, 5], value=3,
-                format_func=lambda x: f"{x} — {LEVEL_LABELS[x][:12]}",
-                key=f"curr_{i}",
-            )
-        with col3:
-            desired = st.select_slider(
-                "Pożądany", options=[1, 2, 3, 4, 5], value=4,
-                format_func=lambda x: f"{x} — {LEVEL_LABELS[x][:12]}",
-                key=f"des_{i}",
-            )
-        with col4:
-            importance = st.select_slider("Waga", options=[1, 2, 3, 4, 5], value=3, key=f"imp_{i}")
-        needs_items.append(NeedsAssessmentItem(
-            competency_name=comp.name, current_level=current,
-            desired_level=desired, importance=importance, assessor=assessor_role,
-        ))
-
-    if st.button("Zapisz ocenę potrzeb", type="primary"):
-        assessment = NeedsAssessment(
-            items=needs_items, assessor_name=assessor_name, assessor_role=assessor_role,
+        assessor_name = st.text_input("Imię i nazwisko oceniającego / grupy", key="assess_name")
+        assessor_role = st.selectbox(
+            "Rola", ["trener", "przełożony", "zespół", "uczestnik (samoocena)"], key="assess_role"
         )
-        st.session_state["needs_assessment"] = assessment
-        st.success("Ocena zapisana. Pobierz pliki z panelu bocznego i wyślij trenerowi.")
-
-    if "needs_assessment" in st.session_state:
-        assessment: NeedsAssessment = st.session_state["needs_assessment"]
         st.divider()
-        st.subheader("Wyniki analizy potrzeb")
 
-        sorted_items = sorted(assessment.items, key=lambda x: x.priority_score, reverse=True)
-        header_cols = st.columns([3, 1, 1, 1, 1])
-        for col_w, label in zip(header_cols, ["Kompetencja", "Aktualny", "Pożądany", "Luka", "Priorytet"]):
-            col_w.markdown(f"**{label}**")
-
-        for item in sorted_items:
-            cols = st.columns([3, 1, 1, 1, 1])
-            cols[0].write(item.competency_name)
-            cols[1].write(f"{item.current_level} — {LEVEL_LABELS[item.current_level][:10]}")
-            cols[2].write(f"{item.desired_level} — {LEVEL_LABELS[item.desired_level][:10]}")
-            gap_color = "red" if item.gap >= 2 else ("orange" if item.gap == 1 else "green")
-            cols[3].markdown(f":{gap_color}[**{item.gap}**]")
-            cols[4].write(str(item.priority_score))
+        needs_items: list[NeedsAssessmentItem] = []
+        for i, comp in enumerate(profile.competencies):
+            col1, col2, col3 = st.columns([3, 2, 1])
+            with col1:
+                st.markdown(f"**{comp.name}**")
+                cat_lbl = CATEGORY_LABELS.get(comp.category, comp.category)
+                st.caption(cat_lbl)
+            with col2:
+                desired = st.select_slider(
+                    "Poziom oczekiwany",
+                    options=[1, 2, 3, 4, 5],
+                    value=4,
+                    format_func=lambda x: f"{x} — {LEVEL_LABELS[x][:20]}",
+                    key=f"des_{i}",
+                )
+            with col3:
+                importance = st.select_slider(
+                    "Ważność",
+                    options=[1, 2, 3, 4, 5],
+                    value=3,
+                    key=f"imp_{i}",
+                )
+            needs_items.append(NeedsAssessmentItem(
+                competency_name=comp.name,
+                current_level=0,   # określany przez wynik STK, nie samoocenę
+                desired_level=desired,
+                importance=importance,
+                assessor=assessor_role,
+            ))
 
         st.divider()
+
+        if "needs_assessment" in st.session_state:
+            assessment: NeedsAssessment = st.session_state["needs_assessment"]
+            st.subheader("Podgląd wyników analizy potrzeb")
+            sorted_items = sorted(assessment.items,
+                                  key=lambda x: x.desired_level * x.importance, reverse=True)
+            header_cols = st.columns([3, 2, 1, 1])
+            for col_w, label in zip(header_cols, ["Kompetencja", "Poziom oczekiwany", "Ważność", "Priorytet"]):
+                col_w.markdown(f"**{label}**")
+            for item in sorted_items:
+                cols = st.columns([3, 2, 1, 1])
+                cols[0].write(item.competency_name)
+                cols[1].write(f"{item.desired_level} — {LEVEL_LABELS[item.desired_level][:15]}")
+                cols[2].write(str(item.importance))
+                cols[3].write(str(item.desired_level * item.importance))
+            st.divider()
+
+        col_save1, col_save2 = st.columns(2)
+
+        with col_save1:
+            if st.button("Zapisz ocenę potrzeb (podgląd)", key="btn_preview_needs"):
+                assessment = NeedsAssessment(
+                    items=needs_items,
+                    assessor_name=assessor_name,
+                    assessor_role=assessor_role,
+                )
+                st.session_state["needs_assessment"] = assessment
+                st.rerun()
+
+        with col_save2:
+            if st.button("Zapisz stanowisko i dodaj kolejne →", type="primary",
+                         key="btn_save_position"):
+                assessment = NeedsAssessment(
+                    items=needs_items,
+                    assessor_name=assessor_name,
+                    assessor_role=assessor_role,
+                )
+                st.session_state["needs_assessment"] = assessment
+                # Zapisz do listy stanowisk
+                st.session_state["saved_positions"].append({
+                    "profile": st.session_state["profile"],
+                    "needs": st.session_state["needs_assessment"],
+                })
+                n = len(st.session_state["saved_positions"])
+                _reset_form()
+                st.success(f"Stanowisko #{n} zapisane! Formularz zresetowany — możesz dodać kolejne.")
+                st.rerun()
+
         st.info(
-            "Gotowe! Pobierz pliki z panelu bocznego po lewej:\n\n"
-            "- **JSON** — plik dla trenera (import do Asystenta STK)\n"
-            "- **XLSX** — czytelny raport z opisami kompetencji i luką"
+            "Po zapisaniu stanowiska formularz się zresetuje — możesz dodać kolejne.\n\n"
+            "Gotowe pliki do pobrania pojawią się w **panelu bocznym** po lewej."
         )
