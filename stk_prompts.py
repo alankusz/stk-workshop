@@ -208,11 +208,16 @@ Zwróć JSON z polami: name, category (S/O/M/Z), definition, indicators, level_1
 
 
 def build_stk_prompt(
-    competencies: list[dict],
+    competencies: list,
     company_context: str,
     questions_per_competency: int = 6,
+    incidents=None,
 ) -> str:
-    """Buduje user prompt do generowania pytań STK."""
+    """Buduje user prompt do generowania pytań STK.
+
+    incidents: lista słowników CriticalIncident.to_dict() — opcjonalne;
+    gdy podane, AI opiera dylematy na rzeczywistych zdarzeniach z organizacji.
+    """
     comp_list = ""
     for c in competencies:
         comp_list += f"\n### {c['name']} ({c.get('category', '?')})\n"
@@ -223,13 +228,46 @@ def build_stk_prompt(
         comp_list += f"Poziom 3 (norma): {c.get('level_3', '')}\n"
         comp_list += f"Poziom 4 (bardzo dobry): {c.get('level_4', '')}\n"
 
+    incidents_section = ""
+    if incidents:
+        incidents_section = "\n\nINCYDENTY KRYTYCZNE (rzeczywiste sytuacje z organizacji — opieraj na nich dylematy):\n"
+        # Grupuj incydenty per kompetencja
+        by_comp: dict[str, list[dict]] = {}
+        for inc in incidents:
+            cname = inc.get("competency_name", "Inne")
+            by_comp.setdefault(cname, []).append(inc)
+        for cname, incs in by_comp.items():
+            incidents_section += f"\n#### Kompetencja: {cname}\n"
+            for j, inc in enumerate(incs, 1):
+                incidents_section += f"Incydent {j}:\n"
+                if inc.get("situation"):
+                    incidents_section += f"  Sytuacja: {inc['situation']}\n"
+                if inc.get("actors"):
+                    incidents_section += f"  Zaangażowani: {inc['actors']}\n"
+                if inc.get("action"):
+                    incidents_section += f"  Decyzja/działanie: {inc['action']}\n"
+                if inc.get("reasoning"):
+                    incidents_section += f"  Powód: {inc['reasoning']}\n"
+                if inc.get("result"):
+                    incidents_section += f"  Rezultat: {inc['result']}\n"
+                if inc.get("best_alternative"):
+                    incidents_section += f"  Najlepsza reakcja: {inc['best_alternative']}\n"
+                if inc.get("worst_alternative"):
+                    incidents_section += f"  Najgorsza reakcja: {inc['worst_alternative']}\n"
+        incidents_section += (
+            "\nINSTRUKCJA: Przekształć powyższe incydenty w dylematy sytuacyjne — "
+            "odanominizuj szczegóły (zmień imiona, daty, szczegóły identyfikujące), "
+            "ale zachowaj istotę sytuacji i charakter decyzji. "
+            "Jeśli incydent zawiera już najlepszą/najgorszą reakcję, użyj ich jako opcji scoringowych."
+        )
+
     return f"""Wygeneruj Sytuacyjny Test Kompetencyjny (STK) — {questions_per_competency} pytań na każdą kompetencję.
 
 KONTEKST FIRMY/STANOWISKA:
 {company_context}
 
 KOMPETENCJE DO POMIARU:
-{comp_list}
+{comp_list}{incidents_section}
 
 WYMAGANIA:
 - {questions_per_competency} dylematów sytuacyjnych na KAŻDĄ kompetencję

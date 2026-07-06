@@ -311,7 +311,13 @@ def generate_stk_test(
     company: CompanyProfile,
     api_key: str,
     questions_per_competency: int = 6,
+    incidents: list | None = None,
 ) -> STKTest:
+    """Generuje pytania STK.
+
+    incidents: lista dict z CriticalIncident.to_dict() — gdy podane, AI
+    opiera dylematy na rzeczywistych zdarzeniach z organizacji.
+    """
     comp_dicts = [asdict(c) for c in competencies]
     company_context = (
         f"Firma: {company.company_name} ({company.industry}, {company.size}). "
@@ -319,7 +325,7 @@ def generate_stk_test(
         f"Zadania: {company.key_tasks}. "
         f"Kontekst: {company.culture_notes} {company.additional_context}"
     )
-    user_prompt = build_stk_prompt(comp_dicts, company_context, questions_per_competency)
+    user_prompt = build_stk_prompt(comp_dicts, company_context, questions_per_competency, incidents)
 
     test = None
     for _ in range(2):

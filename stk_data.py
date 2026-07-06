@@ -178,6 +178,42 @@ class CompetencyProfile:
 
 
 # ---------------------------------------------------------------------------
+# Incydenty krytyczne (do tworzenia dylematów STK, wg Flanagan / Prokopowicz)
+# ---------------------------------------------------------------------------
+@dataclass
+class CriticalIncident:
+    """Konkretna sytuacja z pracy — baza do tworzenia dylematów STK.
+
+    Pola odpowiadają strukturze incydentu krytycznego (Prokopowicz et al. 2014,
+    rozdz. 5): sytuacja → decyzja → powód → rezultat + alternatywy.
+    """
+    competency_name: str = ""
+    situation: str = ""        # Co się wydarzyło? Kiedy, gdzie, kontekst?
+    actors: str = ""           # Kto był zaangażowany?
+    action: str = ""           # Co zostało zrobione / zdecydowane?
+    reasoning: str = ""        # Dlaczego taka decyzja?
+    result: str = ""           # Jaki był rezultat (pozytywny / negatywny)?
+    best_alternative: str = "" # Najlepsza możliwa reakcja w tej sytuacji
+    worst_alternative: str = ""# Najgorsza możliwa reakcja w tej sytuacji
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "CriticalIncident":
+        return cls(
+            competency_name=d.get("competency_name", ""),
+            situation=d.get("situation", ""),
+            actors=d.get("actors", ""),
+            action=d.get("action", ""),
+            reasoning=d.get("reasoning", ""),
+            result=d.get("result", ""),
+            best_alternative=d.get("best_alternative", ""),
+            worst_alternative=d.get("worst_alternative", ""),
+        )
+
+
+# ---------------------------------------------------------------------------
 # Analiza potrzeb szkoleniowych
 # ---------------------------------------------------------------------------
 @dataclass

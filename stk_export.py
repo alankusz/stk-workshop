@@ -835,6 +835,179 @@ def build_profile_docx(profile: CompetencyProfile,
     return buf.getvalue()
 
 
+def build_incidents_docx(
+    incidents: list,
+    position_name: str = "",
+    company_name: str = "",
+) -> bytes:
+    """Generuje DOCX z incydentami krytycznymi — sformatowany raport dla trenera."""
+    from stk_data import CriticalIncident
+    incs = [
+        (i if isinstance(i, CriticalIncident) else CriticalIncident.from_dict(i))
+        for i in incidents
+    ]
+
+    doc = Document()
+    _style_base(doc)
+
+    doc.add_paragraph()
+    title = doc.add_paragraph()
+    run = title.add_run("INCYDENTY KRYTYCZNE")
+    run.font.name = FONT; run.font.bold = True
+    run.font.size = Pt(24); run.font.color.rgb = EA_NAVY
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    gold_tbl = doc.add_table(rows=1, cols=1)
+    c = gold_tbl.rows[0].cells[0]
+    tcPr = c._tc.get_or_add_tcPr()
+    shd = OxmlElement("w:shd")
+    shd.set(qn("w:val"), "clear"); shd.set(qn("w:color"), "auto")
+    shd.set(qn("w:fill"), "F5C518")
+    tcPr.append(shd)
+    c.paragraphs[0].paragraph_format.space_before = Pt(2)
+    c.paragraphs[0].paragraph_format.space_after = Pt(2)
+    doc.add_paragraph()
+
+    if position_name or company_name:
+        sub = doc.add_paragraph()
+        sub_run = sub.add_run(position_name + (f"  —  {company_name}" if company_name else ""))
+        sub_run.font.name = FONT; sub_run.font.size = Pt(13); sub_run.font.color.rgb = EA_GRAY
+        sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    gen_p = doc.add_paragraph()
+    gr = gen_p.add_run(
+        f"Liczba incydentów: {len(incs)}  |  Wygenerowano: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+    )
+    gr.font.name = FONT; gr.font.size = Pt(9); gr.font.color.rgb = EA_GRAY
+    gen_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    ea_p = doc.add_paragraph()
+    ear = ea_p.add_run("Enterprise Advisors")
+    ear.font.name = FONT; ear.font.size = Pt(10)
+    ear.font.bold = True; ear.font.color.rgb = EA_NAVY
+    ea_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    doc.add_page_break()
+
+    _heading(doc, "Nota metodyczna", level=1)
+    nota = doc.add_paragraph()
+    nota_run = nota.add_run(
+        "Poniższe incydenty krytyczne zebrano od uczestników warsztatu (Prokopowicz et al. 2014). "
+        "Stanowią one surowiec do tworzenia dylematów sytuacyjnych w teście STK. "
+        "Przy konwersji: odanominizuj szczegóły identyfikujące, zachowaj istotę sytuacji i charakter decyzji. "
+        "Najlepsza i najgorsza reakcja z incydentu mogą służyć jako opcje scoringowe (wynik 4 i 1 pkt)."
+    )
+    nota_run.font.name = FONT; nota_run.font.size = Pt(10)
+    doc.add_paragraph()
+
+    by_comp: dict[str, list] = {}
+    for inc in incs:
+        by_comp.setdefault(inc.competency_name or "Nieokreślona", []).append(inc)
+
+    FIELDS = [
+        ("situation",         "Sytuacja (co, kiedy, gdzie, kontekst)"),
+        ("actors",            "Osoby zaangażowane"),
+        ("action",            "Decyzja / działanie"),
+        ("reasoning",         "Powód decyzji"),
+        ("result",            "Rezultat"),
+        ("best_alternative",  "Najlepsza możliwa reakcja"),
+        ("worst_alternative", "Najgorsza możliwa reakcja"),
+    ]
+
+    for comp_name, comp_incs in by_comp.items():
+        _heading(doc, comp_name, level=1)
+        for n, inc in enumerate(comp_incs, 1):
+            h2p = doc.add_paragraph()
+            h2r = h2p.add_run(f"Incydent {n}")
+            h2r.font.name = FONT; h2r.font.bold = True
+            h2r.font.size = Pt(11); h2r.font.color.rgb = EA_NAVY
+
+            tbl = doc.add_table(rows=len(FIELDS), cols=2)
+            tbl.style = "Table Grid"
+            for row_i, (field_key, field_label) in enumerate(FIELDS):
+                cells = tbl.rows[row_i].cells
+                lbl_r = cells[0].paragraphs[0].add_run(field_label)
+                lbl_r.font.name = FONT; lbl_r.font.bold = True
+                lbl_r.font.size = Pt(9); lbl_r.font.color.rgb = EA_NAVY
+                _set_cell_bg(cells[0], "E8F0FB")
+                cells[0].width = Cm(5.5)
+                val = getattr(inc, field_key, "") or ""
+                val_r = cells[1].paragraphs[0].add_run(val)
+                val_r.font.name = FONT; val_r.font.size = Pt(9)
+                cells[1].width = Cm(11.0)
+                if field_key in ("best_alternative", "worst_alternative"):
+                    _set_cell_bg(cells[0], "FFF3CD")
+            doc.add_paragraph()
+        doc.add_page_break()
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
+def build_incidents_xlsx(
+    incidents: list,
+    position_name: str = "",
+    company_name: str = "",
+) -> bytes:
+    """Generuje XLSX z incydentami krytycznymi."""
+    from stk_data import CriticalIncident
+    from openpyxl.styles import Alignment as XlAlign
+
+    incs = [
+        (i if isinstance(i, CriticalIncident) else CriticalIncident.from_dict(i))
+        for i in incidents
+    ]
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Incydenty_krytyczne"
+    NAVY = "1B4F8A"
+    LIGHT = "E8F0FB"
+    GOLD_L = "FFF3CD"
+
+    ws.merge_cells("A1:I1")
+    th = ws.cell(row=1, column=1,
+                 value=f"Incydenty krytyczne — {position_name}" + (f" ({company_name})" if company_name else ""))
+    th.font = Font(name=FONT, bold=True, size=13, color="FFFFFF")
+    th.fill = PatternFill("solid", fgColor=NAVY)
+    th.alignment = XlAlign(horizontal="center")
+    ws.row_dimensions[1].height = 24
+
+    headers = [
+        "Lp.", "Kompetencja", "Sytuacja", "Osoby zaangażowane",
+        "Decyzja / działanie", "Powód decyzji", "Rezultat",
+        "Najlepsza reakcja", "Najgorsza reakcja",
+    ]
+    for ci, h in enumerate(headers, 1):
+        c = ws.cell(row=2, column=ci, value=h)
+        c.font = Font(name=FONT, bold=True, color="FFFFFF", size=9)
+        c.fill = PatternFill("solid", fgColor=NAVY)
+        c.alignment = XlAlign(wrap_text=True, vertical="top")
+
+    for ri, inc in enumerate(incs, 1):
+        bg = LIGHT if ri % 2 == 0 else None
+        for ci, val in enumerate([
+            ri, inc.competency_name, inc.situation, inc.actors,
+            inc.action, inc.reasoning, inc.result,
+            inc.best_alternative, inc.worst_alternative,
+        ], 1):
+            cell = ws.cell(row=ri + 2, column=ci, value=val)
+            cell.font = Font(name=FONT, size=9)
+            cell.alignment = XlAlign(wrap_text=True, vertical="top")
+            if ci in (8, 9):
+                cell.fill = PatternFill("solid", fgColor=GOLD_L)
+            elif bg:
+                cell.fill = PatternFill("solid", fgColor=bg)
+        ws.row_dimensions[ri + 2].height = 80
+
+    for ci, w in enumerate([4, 22, 36, 20, 30, 25, 25, 30, 30], 1):
+        ws.column_dimensions[get_column_letter(ci)].width = w
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 def build_combined_xlsx(profiles: list[CompetencyProfile]) -> bytes:
     """Generuje zbiorczy XLSX — jeden arkusz per stanowisko + arkusz podsumowania."""
     wb = Workbook()
