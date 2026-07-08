@@ -1104,3 +1104,179 @@ def build_combined_xlsx(profiles: list[CompetencyProfile]) -> bytes:
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# OSP — Opis Stanowiska Pracy (Formularz OSP RES 1.4)
+# ---------------------------------------------------------------------------
+def build_osp_docx(d: dict) -> bytes:
+    """Generuje DOCX Opisu Stanowiska Pracy — 13 sekcji, branding Enterprise Advisors."""
+    doc = Document()
+    _style_base(doc)
+
+    def _gold_bar():
+        tbl = doc.add_table(rows=1, cols=1)
+        c = tbl.rows[0].cells[0]
+        tc = c._tc; tcPr = tc.get_or_add_tcPr()
+        shd = OxmlElement("w:shd")
+        shd.set(qn("w:val"), "clear"); shd.set(qn("w:color"), "auto"); shd.set(qn("w:fill"), "F5C518")
+        tcPr.append(shd)
+        c.paragraphs[0].paragraph_format.space_before = Pt(2)
+        c.paragraphs[0].paragraph_format.space_after = Pt(2)
+
+    def _sec(num, text):
+        p = doc.add_paragraph()
+        p.paragraph_format.space_before = Pt(14)
+        p.paragraph_format.space_after = Pt(4)
+        rn = p.add_run(f"{num}. "); rn.font.name = FONT; rn.font.bold = True; rn.font.size = Pt(11); rn.font.color.rgb = EA_GOLD
+        rt = p.add_run(text.upper()); rt.font.name = FONT; rt.font.bold = True; rt.font.size = Pt(11); rt.font.color.rgb = EA_NAVY
+
+    def _info_tbl(rows_data):
+        if not any(v for _, v in rows_data):
+            return
+        tbl = doc.add_table(rows=len(rows_data), cols=2)
+        tbl.style = "Table Grid"
+        for i, (label, value) in enumerate(rows_data):
+            c0, c1 = tbl.rows[i].cells[0], tbl.rows[i].cells[1]
+            rl = c0.paragraphs[0].add_run(label)
+            rl.font.name = FONT; rl.font.size = Pt(9); rl.font.bold = True; rl.font.color.rgb = EA_NAVY
+            tc = c0._tc; tcPr = tc.get_or_add_tcPr()
+            shd = OxmlElement("w:shd"); shd.set(qn("w:val"), "clear"); shd.set(qn("w:color"), "auto"); shd.set(qn("w:fill"), "E8EEF5")
+            tcPr.append(shd)
+            c0.width = Cm(5)
+            rv = c1.paragraphs[0].add_run(value or "")
+            rv.font.name = FONT; rv.font.size = Pt(9)
+        doc.add_paragraph()
+
+    def _hdr_tbl(headers, rows_data):
+        tbl = doc.add_table(rows=1, cols=len(headers))
+        tbl.style = "Table Grid"
+        for j, h in enumerate(headers):
+            c = tbl.rows[0].cells[j]
+            r = c.paragraphs[0].add_run(h)
+            r.font.name = FONT; r.font.size = Pt(9); r.font.bold = True; r.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+            tc = c._tc; tcPr = tc.get_or_add_tcPr()
+            shd = OxmlElement("w:shd"); shd.set(qn("w:val"), "clear"); shd.set(qn("w:color"), "auto"); shd.set(qn("w:fill"), "1B4F8A")
+            tcPr.append(shd)
+        for row in rows_data:
+            cells = tbl.add_row().cells
+            for j, v in enumerate(row):
+                rv = cells[j].paragraphs[0].add_run(v or "")
+                rv.font.name = FONT; rv.font.size = Pt(9)
+        doc.add_paragraph()
+
+    # --- Strona tytułowa ---
+    tp = doc.add_paragraph(); tp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    tr = tp.add_run("OPIS STANOWISKA PRACY")
+    tr.font.name = FONT; tr.font.bold = True; tr.font.size = Pt(22); tr.font.color.rgb = EA_NAVY
+    _gold_bar()
+    doc.add_paragraph()
+    if d.get("nazwa_stanowiska"):
+        p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        r = p.add_run(d["nazwa_stanowiska"]); r.font.name = FONT; r.font.bold = True; r.font.size = Pt(16); r.font.color.rgb = EA_NAVY
+    if d.get("jednostka"):
+        p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        r = p.add_run(d["jednostka"]); r.font.name = FONT; r.font.size = Pt(12); r.font.color.rgb = EA_GRAY
+    gp = doc.add_paragraph(); gp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    gr = gp.add_run(f"Enterprise Advisors  |  {datetime.now().strftime('%Y-%m-%d')}")
+    gr.font.name = FONT; gr.font.size = Pt(9); gr.font.color.rgb = EA_GRAY
+    doc.add_page_break()
+
+    _sec("1", "Identyfikacja stanowiska")
+    _info_tbl([("Numer", d.get("numer", "")), ("Nazwa stanowiska", d.get("nazwa_stanowiska", ""))])
+
+    _sec("2", "Cel stanowiska")
+    _para(doc, d.get("cel", "") or "(nie określono)")
+    doc.add_paragraph()
+
+    _sec("3", "Umiejscowienie w strukturze")
+    _info_tbl([
+        ("Jednostka organizacyjna", d.get("jednostka", "")),
+        ("Komórka wykonawcza", d.get("komorka", "")),
+        ("Stanowisko przełożonego", d.get("przelozony", "")),
+        ("Stanowiska podległe", d.get("podlegle", "")),
+    ])
+
+    _sec("4", "Doświadczenie i kwalifikacje")
+    _hdr_tbl(
+        ["", "Wymagane", "Pożądane"],
+        [
+            ["Staż pracy", d.get("staz_wym", ""), d.get("staz_poz", "")],
+            ["Stanowisko", d.get("stanowisko_wym", ""), d.get("stanowisko_poz", "")],
+            ["Specjalność", d.get("specjalnosc_wym", ""), d.get("specjalnosc_poz", "")],
+            ["Wykształcenie", d.get("wyksztalcenie_wym", ""), d.get("wyksztalcenie_poz", "")],
+            ["Kwalifikacje", d.get("kwalifikacje_wym", ""), d.get("kwalifikacje_poz", "")],
+            ["Uprawnienia", d.get("uprawnienia_wym", ""), d.get("uprawnienia_poz", "")],
+        ],
+    )
+
+    _sec("5", "Upoważnienia i odpowiedzialność")
+    _para(doc, d.get("upowaznienia", "") or "(nie określono)")
+    doc.add_paragraph()
+
+    _sec("6", "Kluczowe wskaźniki efektywności")
+    _ws = [l.strip() for l in (d.get("kpi_wskazniki", "") or "").splitlines() if l.strip()]
+    _kr = [l.strip() for l in (d.get("kpi_kryteria", "") or "").splitlines() if l.strip()]
+    _mk = max(len(_ws), len(_kr), 4)
+    _hdr_tbl(
+        ["Nr", "Wskaźnik (KPI)", "Kryterium oceny skuteczności"],
+        [[str(i + 1), _ws[i] if i < len(_ws) else "", _kr[i] if i < len(_kr) else ""] for i in range(_mk)],
+    )
+
+    _sec("7", "Zadania wykonywane na stanowisku")
+    _zad = [l.strip() for l in (d.get("zadania", "") or "").splitlines() if l.strip()]
+    if _zad:
+        _hdr_tbl(["Nr", "Zadanie realizowane na stanowisku"], [[str(i + 1), z] for i, z in enumerate(_zad)])
+    else:
+        _para(doc, "(nie określono)"); doc.add_paragraph()
+
+    _sec("8", "Kompetencje")
+    _komps = d.get("kompetencje", [])
+    if _komps:
+        _hdr_tbl(
+            ["Nr KK", "Kompetencja", "Poziom"],
+            [[k.get("nr", str(i + 1)), k.get("nazwa", ""), k.get("poziom", "")] for i, k in enumerate(_komps)],
+        )
+    else:
+        _para(doc, "(nie określono)"); doc.add_paragraph()
+
+    _sec("9", "Pozostałe elementy opisu")
+    _info_tbl([
+        ("Wyposażenie i środki pracy", d.get("wyposazenie", "")),
+        ("Uciążliwość", d.get("uciazkliwosc", "")),
+        ("Zagrożenia", d.get("zagrozenia", "")),
+        ("Kto zastępuje w trakcie urlopu?", d.get("zastepstwo_urlop", "")),
+        ("Inne wymogi", d.get("inne_wymogi", "")),
+    ])
+
+    _sec("10", "Relacje i współpraca")
+    _info_tbl([
+        ("Współpraca wewnętrzna (działy, funkcje)", d.get("wspolpraca_wewn", "")),
+        ("Współpraca zewnętrzna (klienci, dostawcy, partnerzy)", d.get("wspolpraca_zewn", "")),
+    ])
+
+    _sec("11", "Zastępstwa")
+    _info_tbl([
+        ("Kogo zastępuje to stanowisko", d.get("zastepuje_kogo", "")),
+        ("Kto zastępuje to stanowisko", d.get("kto_zastepuje", "")),
+    ])
+
+    _sec("12", "Limity decyzyjne")
+    _info_tbl([
+        ("Decyzje podejmowane samodzielnie", d.get("decyzje_sam", "")),
+        ("Decyzje wymagające akceptacji przełożonego", d.get("decyzje_akc", "")),
+        ("Limity finansowe (kwoty, budżet)", d.get("limity_fin", "")),
+        ("Pełnomocnictwa i upoważnienia", d.get("pelnomocnictwa", "")),
+    ])
+
+    _sec("13", "Miejsce i tryb pracy")
+    _info_tbl([
+        ("Miejsce wykonywania pracy", d.get("miejsce", "")),
+        ("Tryb pracy (stacjonarny, hybrydowy, zdalny)", d.get("tryb", "")),
+        ("Mobilność i delegacje", d.get("mobilnosc", "")),
+        ("Dyspozycyjność (zmiany, dyżury)", d.get("dyspozycyjnosc", "")),
+    ])
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()

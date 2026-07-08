@@ -311,10 +311,11 @@ with st.sidebar:
 # ---------------------------------------------------------------------------
 # Zakładki
 # ---------------------------------------------------------------------------
-tab1, tab2, tab3 = st.tabs([
+tab1, tab2, tab3, tab_osp = st.tabs([
     "1. Profil kompetencji",
     "2. Analiza potrzeb",
     "3. Incydenty krytyczne",
+    "OSP",
 ])
 
 
@@ -850,3 +851,221 @@ with tab3:
                 "Nie dodano jeszcze żadnych incydentów. "
                 "Opisz 2–5 sytuacji per kompetencja — im więcej, tym trafniejszy test STK."
             )
+
+
+# ===========================================================================
+# TAB OSP: Opis Stanowiska Pracy
+# ===========================================================================
+with tab_osp:
+    st.header("Opis Stanowiska Pracy")
+    st.caption("Formularz OSP RES 1.4 — Enterprise Advisors. Wypełnij dowolną liczbę sekcji.")
+
+    _osp_prof = st.session_state.get("profile")
+    _osp_needs = st.session_state.get("needs_assessment")
+
+    if _osp_prof:
+        if st.button("Wypełnij z profilu kompetencji", key="osp_fill_btn", type="primary"):
+            st.session_state["_osp_nazwa"] = _osp_prof.company.position_name
+            st.session_state["_osp_jednostka"] = _osp_prof.company.company_name
+            if _osp_prof.company.key_tasks:
+                _osp_tasks = [t.strip() for t in _osp_prof.company.key_tasks.split("\n") if t.strip()][:6]
+                st.session_state["_osp_zadania"] = "\n".join(_osp_tasks)
+            _osp_dm: dict = {}
+            if _osp_needs:
+                for _ni in _osp_needs.items:
+                    _osp_dm[_ni.competency_name] = _ni.desired_level
+            _osp_comps = _osp_prof.competencies[:10]
+            st.session_state["_osp_komp_count"] = max(len(_osp_comps), st.session_state.get("_osp_komp_count", 4))
+            for _ci, _comp in enumerate(_osp_comps):
+                st.session_state[f"_osp_komp_n_{_ci}"] = _comp.name
+                _lv = _osp_dm.get(_comp.name, "")
+                st.session_state[f"_osp_komp_p_{_ci}"] = str(_lv) if _lv else ""
+            st.rerun()
+    else:
+        st.info("Opcjonalnie: wygeneruj profil kompetencji w zakładce 1, aby auto-uzupełnić część pól.")
+
+    st.divider()
+
+    with st.expander("1. Identyfikacja stanowiska", expanded=True):
+        _oc1, _oc2 = st.columns([1, 3])
+        with _oc1:
+            st.text_input("Numer stanowiska", key="_osp_numer")
+        with _oc2:
+            st.text_input("Nazwa stanowiska", key="_osp_nazwa")
+
+    with st.expander("2. Cel stanowiska", expanded=True):
+        st.text_area("Cel stanowiska", key="_osp_cel", height=100,
+                     placeholder="Krótki opis celu istnienia stanowiska w organizacji...",
+                     label_visibility="collapsed")
+
+    with st.expander("3. Umiejscowienie w strukturze", expanded=False):
+        _oc1, _oc2 = st.columns(2)
+        with _oc1:
+            st.text_input("Jednostka organizacyjna", key="_osp_jednostka")
+            st.text_input("Komórka wykonawcza", key="_osp_komorka")
+        with _oc2:
+            st.text_input("Stanowisko przełożonego", key="_osp_przelozony")
+            st.text_input("Stanowiska podległe", key="_osp_podlegle")
+
+    with st.expander("4. Doświadczenie i kwalifikacje", expanded=False):
+        _oh = st.columns([2, 3, 3])
+        _oh[0].markdown("**Kryterium**"); _oh[1].markdown("**Wymagane**"); _oh[2].markdown("**Pożądane**")
+        for _ol, _okw, _okp in [
+            ("Staż pracy", "_osp_staz_wym", "_osp_staz_poz"),
+            ("Stanowisko", "_osp_stan_wym", "_osp_stan_poz"),
+            ("Specjalność", "_osp_spec_wym", "_osp_spec_poz"),
+            ("Wykształcenie", "_osp_wyk_wym", "_osp_wyk_poz"),
+            ("Kwalifikacje", "_osp_kwal_wym", "_osp_kwal_poz"),
+            ("Uprawnienia", "_osp_upr_wym", "_osp_upr_poz"),
+        ]:
+            _or = st.columns([2, 3, 3])
+            _or[0].write(_ol)
+            _or[1].text_input("w", key=_okw, label_visibility="collapsed")
+            _or[2].text_input("p", key=_okp, label_visibility="collapsed")
+
+    with st.expander("5. Upoważnienia i odpowiedzialność", expanded=False):
+        st.text_area("Upoważnienia", key="_osp_upowaznienia", height=100,
+                     placeholder="Zakres upoważnień i odpowiedzialności...",
+                     label_visibility="collapsed")
+
+    with st.expander("6. Kluczowe wskaźniki efektywności (KPI)", expanded=False):
+        st.caption("Jeden wskaźnik na linię — prawa kolumna to odpowiadające kryterium oceny")
+        _okc1, _okc2 = st.columns(2)
+        with _okc1:
+            st.markdown("**Wskaźnik (KPI)**")
+            st.text_area("kpi_w", key="_osp_kpi_wskazniki", height=120, label_visibility="collapsed",
+                         placeholder="np.\nRealizacja planu sprzedaży (%)\nSatysfakcja klienta (NPS)")
+        with _okc2:
+            st.markdown("**Kryterium oceny**")
+            st.text_area("kpi_k", key="_osp_kpi_kryteria", height=120, label_visibility="collapsed",
+                         placeholder="np.\n≥100% kwartalnie\nNPS ≥ 8")
+
+    with st.expander("7. Zadania wykonywane na stanowisku", expanded=False):
+        st.text_area("Zadania (jeden na linię)", key="_osp_zadania", height=150,
+                     placeholder="np.\nZarządzanie zespołem handlowym\nRealizacja planu sprzedaży\nCoaching handlowców")
+
+    with st.expander("8. Kompetencje", expanded=False):
+        if "_osp_komp_count" not in st.session_state:
+            st.session_state["_osp_komp_count"] = 4
+        _okc = st.session_state["_osp_komp_count"]
+        _och = st.columns([0.4, 3.5, 1.5])
+        _och[0].markdown("**Nr**"); _och[1].markdown("**Kompetencja**"); _och[2].markdown("**Poziom (1-5)**")
+        for _ki in range(_okc):
+            _okr = st.columns([0.4, 3.5, 1.5])
+            _okr[0].write(f"{_ki + 1}.")
+            _okr[1].text_input("n", key=f"_osp_komp_n_{_ki}", label_visibility="collapsed")
+            _okr[2].selectbox("p", ["", "1", "2", "3", "4", "5"],
+                              key=f"_osp_komp_p_{_ki}", label_visibility="collapsed")
+        if st.button("+ Dodaj wiersz kompetencji", key="osp_add_komp"):
+            st.session_state["_osp_komp_count"] = _okc + 1
+            st.rerun()
+
+    with st.expander("9. Pozostałe elementy opisu", expanded=False):
+        for _ol9, _ok9, _oph9 in [
+            ("Wyposażenie i środki pracy", "_osp_wyposazenie", "np. komputer, samochód służbowy..."),
+            ("Uciążliwość", "_osp_uciazkliwosc", "np. praca przy komputerze > 4h dziennie"),
+            ("Zagrożenia", "_osp_zagrozenia", "np. stres, wypalenie zawodowe"),
+            ("Kto zastępuje w trakcie urlopu?", "_osp_zast_urlop", ""),
+            ("Inne wymogi", "_osp_inne_wymogi", ""),
+        ]:
+            st.text_input(_ol9, key=_ok9, placeholder=_oph9)
+
+    with st.expander("10. Relacje i współpraca", expanded=False):
+        st.text_area("Współpraca wewnętrzna (działy, funkcje)", key="_osp_wspolpr_wewn", height=80)
+        st.text_area("Współpraca zewnętrzna (klienci, dostawcy, partnerzy)", key="_osp_wspolpr_zewn", height=80)
+
+    with st.expander("11. Zastępstwa", expanded=False):
+        st.text_input("Kogo zastępuje to stanowisko", key="_osp_zast_kogo")
+        st.text_input("Kto zastępuje to stanowisko", key="_osp_kto_zast")
+
+    with st.expander("12. Limity decyzyjne", expanded=False):
+        st.text_area("Decyzje podejmowane samodzielnie", key="_osp_dec_sam", height=80)
+        st.text_area("Decyzje wymagające akceptacji przełożonego", key="_osp_dec_akc", height=80)
+        st.text_input("Limity finansowe (kwoty, budżet)", key="_osp_limity_fin")
+        st.text_input("Pełnomocnictwa i upoważnienia", key="_osp_pelnomocnictwa")
+
+    with st.expander("13. Miejsce i tryb pracy", expanded=False):
+        st.text_input("Miejsce wykonywania pracy", key="_osp_miejsce")
+        st.text_input("Tryb pracy (stacjonarny, hybrydowy, zdalny)", key="_osp_tryb")
+        st.text_input("Mobilność i delegacje", key="_osp_mobilnosc")
+        st.text_input("Dyspozycyjność (zmiany, dyżury)", key="_osp_dyspozycyjnosc")
+
+    st.divider()
+    st.subheader("Pobierz OSP")
+
+    _osp_komp_list = []
+    for _ki in range(st.session_state.get("_osp_komp_count", 4)):
+        _on = st.session_state.get(f"_osp_komp_n_{_ki}", "")
+        if _on:
+            _osp_komp_list.append({
+                "nr": str(_ki + 1),
+                "nazwa": _on,
+                "poziom": st.session_state.get(f"_osp_komp_p_{_ki}", ""),
+            })
+
+    _osp_export = {
+        "numer": st.session_state.get("_osp_numer", ""),
+        "nazwa_stanowiska": st.session_state.get("_osp_nazwa", ""),
+        "cel": st.session_state.get("_osp_cel", ""),
+        "jednostka": st.session_state.get("_osp_jednostka", ""),
+        "komorka": st.session_state.get("_osp_komorka", ""),
+        "przelozony": st.session_state.get("_osp_przelozony", ""),
+        "podlegle": st.session_state.get("_osp_podlegle", ""),
+        "staz_wym": st.session_state.get("_osp_staz_wym", ""),
+        "staz_poz": st.session_state.get("_osp_staz_poz", ""),
+        "stanowisko_wym": st.session_state.get("_osp_stan_wym", ""),
+        "stanowisko_poz": st.session_state.get("_osp_stan_poz", ""),
+        "specjalnosc_wym": st.session_state.get("_osp_spec_wym", ""),
+        "specjalnosc_poz": st.session_state.get("_osp_spec_poz", ""),
+        "wyksztalcenie_wym": st.session_state.get("_osp_wyk_wym", ""),
+        "wyksztalcenie_poz": st.session_state.get("_osp_wyk_poz", ""),
+        "kwalifikacje_wym": st.session_state.get("_osp_kwal_wym", ""),
+        "kwalifikacje_poz": st.session_state.get("_osp_kwal_poz", ""),
+        "uprawnienia_wym": st.session_state.get("_osp_upr_wym", ""),
+        "uprawnienia_poz": st.session_state.get("_osp_upr_poz", ""),
+        "upowaznienia": st.session_state.get("_osp_upowaznienia", ""),
+        "kpi_wskazniki": st.session_state.get("_osp_kpi_wskazniki", ""),
+        "kpi_kryteria": st.session_state.get("_osp_kpi_kryteria", ""),
+        "zadania": st.session_state.get("_osp_zadania", ""),
+        "kompetencje": _osp_komp_list,
+        "wyposazenie": st.session_state.get("_osp_wyposazenie", ""),
+        "uciazkliwosc": st.session_state.get("_osp_uciazkliwosc", ""),
+        "zagrozenia": st.session_state.get("_osp_zagrozenia", ""),
+        "zastepstwo_urlop": st.session_state.get("_osp_zast_urlop", ""),
+        "inne_wymogi": st.session_state.get("_osp_inne_wymogi", ""),
+        "wspolpraca_wewn": st.session_state.get("_osp_wspolpr_wewn", ""),
+        "wspolpraca_zewn": st.session_state.get("_osp_wspolpr_zewn", ""),
+        "zastepuje_kogo": st.session_state.get("_osp_zast_kogo", ""),
+        "kto_zastepuje": st.session_state.get("_osp_kto_zast", ""),
+        "decyzje_sam": st.session_state.get("_osp_dec_sam", ""),
+        "decyzje_akc": st.session_state.get("_osp_dec_akc", ""),
+        "limity_fin": st.session_state.get("_osp_limity_fin", ""),
+        "pelnomocnictwa": st.session_state.get("_osp_pelnomocnictwa", ""),
+        "miejsce": st.session_state.get("_osp_miejsce", ""),
+        "tryb": st.session_state.get("_osp_tryb", ""),
+        "mobilnosc": st.session_state.get("_osp_mobilnosc", ""),
+        "dyspozycyjnosc": st.session_state.get("_osp_dyspozycyjnosc", ""),
+    }
+    _osp_safe = (_osp_export.get("nazwa_stanowiska") or "OSP").replace(" ", "_")[:40]
+
+    _oec1, _oec2 = st.columns(2)
+    with _oec1:
+        try:
+            from stk_export import build_osp_docx as _build_osp_docx
+            _osp_docx_bytes = _build_osp_docx(_osp_export)
+            st.download_button(
+                "Pobierz OSP (DOCX)",
+                data=_osp_docx_bytes,
+                file_name=f"OSP_{_osp_safe}.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                type="primary",
+            )
+        except Exception as _oe:
+            st.error(f"Błąd DOCX: {_oe}")
+    with _oec2:
+        st.download_button(
+            "Pobierz OSP (JSON)",
+            data=json.dumps(_osp_export, ensure_ascii=False, indent=2),
+            file_name=f"OSP_{_osp_safe}.json",
+            mime="application/json",
+        )
