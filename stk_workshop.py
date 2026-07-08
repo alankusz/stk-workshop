@@ -463,7 +463,7 @@ with tab1:
                             f"<b>{lk}. {LEVEL_LABELS[lk]}</b><br><br>{desc}</div>",
                             unsafe_allow_html=True,
                         )
-                with st.expander("✏️ Edytuj opisy", expanded=False):
+                if st.toggle("✏️ Edytuj opisy", key=f"toggle_edit_{i}"):
                     st.text_area(
                         "Definicja",
                         value=comp.definition,
@@ -530,6 +530,20 @@ with tab1:
                     st.rerun()
                 except Exception as e:
                     st.error(f"Błąd: {e}")
+
+        st.divider()
+        try:
+            from stk_export import build_profile_docx
+            _prof_docx = build_profile_docx(profile, None)
+            _safe_pos = profile.company.position_name.replace(" ", "_")[:40]
+            st.download_button(
+                "Pobierz profil kompetencji DOCX",
+                data=_prof_docx,
+                file_name=f"Profil_{_safe_pos}.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        except Exception as _e:
+            st.caption(f"DOCX niedostępny: {_e}")
 
 
 # ===========================================================================
