@@ -135,7 +135,7 @@ def _competency_level_table(doc: Document, comp: "Competency",
 
 
 def _key_tasks_table(doc: Document, tasks_list: list) -> None:
-    """Tabela analizy pracy: Zadanie | Czestotliwosc | Waznosc | Trudnosc | Priorytet."""
+    """Tabela analizy pracy: Zadanie | Częstotliwość | Ważność | Trudność | Priorytet."""
     if not tasks_list:
         return
 
@@ -144,7 +144,7 @@ def _key_tasks_table(doc: Document, tasks_list: list) -> None:
     table.style = "Table Grid"
 
     hdr = table.rows[0]
-    for j, h in enumerate(["Zadanie", "Czestotliwosc", "Waznosc", "Trudnosc", "Priorytet"]):
+    for j, h in enumerate(["Zadanie", "Częstotliwość", "Ważność", "Trudność", "Priorytet"]):
         cell = hdr.cells[j]
         cell.text = ""
         run = cell.paragraphs[0].add_run(h)
@@ -726,7 +726,7 @@ def build_combined_docx(profiles: list[CompetencyProfile],
         _para(doc, f"{c.company_name}  |  {c.industry}  |  {c.size}  |  Poziom: {c.position_level}", gray=True)
         if c.key_tasks_list:
             _heading(doc, "Analiza pracy — kluczowe zadania", level=3)
-            _para(doc, "Zadania oceniane w skali 1-3. Zadania o wysokiej waznosci i trudnosci wyznaczaja kompetencje kluczowe.", gray=True)
+            _para(doc, "Zadania oceniane w skali 1-3. Zadania o wysokiej ważności i trudności wyznaczają kompetencje kluczowe.", gray=True)
             _key_tasks_table(doc, c.key_tasks_list)
         elif c.key_tasks:
             _para(doc, f"Kluczowe zadania: {c.key_tasks}", italic=True)
@@ -835,7 +835,7 @@ def build_profile_docx(profile: CompetencyProfile,
     # --- Analiza pracy ---
     if profile.company.key_tasks_list:
         _heading(doc, "Analiza pracy — kluczowe zadania", level=1)
-        _para(doc, "Zadania oceniane w skali 1-3. Zadania o wysokiej waznosci i trudnosci wyznaczaja kompetencje kluczowe.", gray=True)
+        _para(doc, "Zadania oceniane w skali 1-3. Zadania o wysokiej ważności i trudności wyznaczają kompetencje kluczowe.", gray=True)
         _key_tasks_table(doc, profile.company.key_tasks_list)
     elif profile.company.key_tasks:
         _heading(doc, "Kluczowe zadania", level=1)

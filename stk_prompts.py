@@ -169,7 +169,7 @@ ZASADY TWORZENIA PYTAŃ STK:
 # Funkcje tworzące pełne prompty
 # ---------------------------------------------------------------------------
 def _format_tasks_for_prompt(tasks_list: list) -> str:
-    """Formatuje liste zadan jako czytelna tabele do promptu AI."""
+    """Formatuje listę zadań jako czytelną tabelę do promptu AI."""
     if not tasks_list:
         return "nie podano"
     lines = ["Analiza pracy (skala 1-3):"]
@@ -180,9 +180,9 @@ def _format_tasks_for_prompt(tasks_list: list) -> str:
         f = t.get("frequency", 2)
         i = t.get("importance", 2)
         d = t.get("difficulty", 2)
-        prio = "Wysoki" if i == 3 else ("Sredni" if i == 2 else "Niski")
-        lines.append(f"  - {name} | czestotliwosc:{f}/3 | waznosc:{i}/3 | trudnosc:{d}/3 | priorytet:{prio}")
-    lines.append("Zadania o wysokim priorytecie wyznaczaja kompetencje kluczowe.")
+        prio = "Wysoki" if i == 3 else ("Średni" if i == 2 else "Niski")
+        lines.append(f"  - {name} | częstotliwość:{f}/3 | ważność:{i}/3 | trudność:{d}/3 | priorytet:{prio}")
+    lines.append("Zadania o wysokim priorytecie wyznaczają kompetencje kluczowe.")
     return "\n".join(lines)
 
 

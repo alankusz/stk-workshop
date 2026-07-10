@@ -371,7 +371,7 @@ with tab1:
             _rc[2].write(str(_task["importance"]))
             _rc[3].write(str(_task["difficulty"]))
             _prio = task_priority(_task["importance"])
-            _pcolor = "#1B4F8A" if _prio == "Wysoki" else ("#e65c00" if _prio == "Sredni" else "#888888")
+            _pcolor = "#1B4F8A" if _prio == "Wysoki" else ("#e65c00" if _prio == "Średni" else "#888888")
             _rc[4].markdown(f"<span style='font-weight:bold;color:{_pcolor}'>{_prio}</span>", unsafe_allow_html=True)
             if _rc[5].button("✕", key=f"del_ktask_{_ti}"):
                 _to_del.append(_ti)

@@ -26,16 +26,16 @@ class CompanyProfile:
 
 
 def task_priority(importance: int) -> str:
-    """Wyznacza priorytet zadania na podstawie ważnosci (1-3)."""
+    """Wyznacza priorytet zadania na podstawie ważności (1-3)."""
     if importance == 3:
         return "Wysoki"
     elif importance == 2:
-        return "Sredni"
+        return "Średni"
     return "Niski"
 
 
 def tasks_to_str(tasks_list: list) -> str:
-    """Konwertuje liste zadan na tekst (dla AI prompt i eksportu tekstowego)."""
+    """Konwertuje listę zadań na tekst (dla AI prompt i eksportu tekstowego)."""
     if not tasks_list:
         return ""
     lines = []
@@ -48,7 +48,7 @@ def tasks_to_str(tasks_list: list) -> str:
         d = t.get("difficulty", 2)
         prio = task_priority(i)
         lines.append(
-            f"{name} | czestotliwosc:{f}/3 | waznosc:{i}/3 | trudnosc:{d}/3 | priorytet:{prio}"
+            f"{name} | częstotliwość:{f}/3 | ważność:{i}/3 | trudność:{d}/3 | priorytet:{prio}"
         )
     return "; ".join(lines)
 
