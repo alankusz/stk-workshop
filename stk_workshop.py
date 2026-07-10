@@ -19,6 +19,7 @@ from stk_data import (
     CriticalIncident,
     LEVEL_LABELS, LEVEL_KEYS, LEVEL_COLORS,
     COMPETENCY_CATALOG, CATEGORY_LABELS,
+    task_priority, tasks_to_str,
 )
 from stk_ai import generate_competency_profile, generate_single_competency
 
@@ -73,7 +74,7 @@ def build_workshop_xlsx(
         ("Wielkość",          profile.company.size),
         ("Stanowisko",        profile.company.position_name),
         ("Poziom",            profile.company.position_level),
-        ("Kluczowe zadania",  profile.company.key_tasks),
+        ("Kluczowe zadania",  tasks_to_str(profile.company.key_tasks_list) if profile.company.key_tasks_list else profile.company.key_tasks),
         ("Kultura / kontekst", profile.company.culture_notes),
     ]
     for i, (label, val) in enumerate(info, start=2):
@@ -169,7 +170,7 @@ def _reset_form() -> None:
         "profile", "needs_assessment", "company", "custom_competencies",
         "c_name", "c_industry", "c_size", "c_level", "c_culture",
         "c_position", "c_tasks", "c_extra", "custom_comp_name",
-        "assess_name", "incidents",
+        "assess_name", "incidents", "key_tasks_list",
     ]
     for key in keys_to_clear:
         st.session_state.pop(key, None)
@@ -177,7 +178,8 @@ def _reset_form() -> None:
     for key in list(st.session_state.keys()):
         if key.startswith(("cat_select_", "des_", "imp_", "rm_comp_", "rm_custom_",
                            "inc_comp_", "inc_sit_", "inc_act_", "inc_actors_",
-                           "inc_reas_", "inc_res_", "inc_best_", "inc_worst_")):
+                           "inc_reas_", "inc_res_", "inc_best_", "inc_worst_",
+                           "del_ktask_", "new_ktask_")):
             del st.session_state[key]
 
 
@@ -346,12 +348,68 @@ with tab1:
             "specjalista", "starszy specjalista", "kierownik zespołu",
             "kierownik działu", "dyrektor", "zarząd",
         ], key="c_level")
-        tasks = st.text_area("Kluczowe zadania", key="c_tasks", height=100,
-                             placeholder="np. zarządzanie zespołem 8 osób, realizacja budżetów...")
-        extra = st.text_area("Dodatkowy kontekst (opcj.)", key="c_extra", height=60)
+        extra = st.text_area("Dodatkowy kontekst (opcj.)", key="c_extra", height=80)
+
+    # --- Krok 2: Analiza pracy — kluczowe zadania ---
+    st.divider()
+    st.subheader("Krok 2: Analiza pracy — kluczowe zadania")
+    st.caption("Oceń każde zadanie w skali 1-3. Zadania o wysokiej ważności wyznaczają kompetencje kluczowe.")
+
+    if "key_tasks_list" not in st.session_state:
+        st.session_state["key_tasks_list"] = []
+
+    _ktl = st.session_state["key_tasks_list"]
+    if _ktl:
+        _hcols = st.columns([4, 1.2, 1.2, 1.2, 1.5, 0.6])
+        for _h, _col in zip(["Zadanie", "Częstość", "Ważność", "Trudność", "Priorytet", ""], _hcols):
+            _col.markdown(f"**{_h}**")
+        _to_del = []
+        for _ti, _task in enumerate(_ktl):
+            _rc = st.columns([4, 1.2, 1.2, 1.2, 1.5, 0.6])
+            _rc[0].write(_task["name"])
+            _rc[1].write(str(_task["frequency"]))
+            _rc[2].write(str(_task["importance"]))
+            _rc[3].write(str(_task["difficulty"]))
+            _prio = task_priority(_task["importance"])
+            _pcolor = "#1B4F8A" if _prio == "Wysoki" else ("#e65c00" if _prio == "Sredni" else "#888888")
+            _rc[4].markdown(f"<span style='font-weight:bold;color:{_pcolor}'>{_prio}</span>", unsafe_allow_html=True)
+            if _rc[5].button("✕", key=f"del_ktask_{_ti}"):
+                _to_del.append(_ti)
+        if _to_del:
+            for _i in reversed(_to_del):
+                st.session_state["key_tasks_list"].pop(_i)
+            st.rerun()
+
+    with st.expander("+ Dodaj zadanie", expanded=not bool(_ktl)):
+        _nc1, _nc2, _nc3, _nc4 = st.columns([4, 1.2, 1.2, 1.2])
+        with _nc1:
+            _new_name = st.text_input("Nazwa zadania", key="new_ktask_name",
+                                      placeholder="np. Rozpoznanie potrzeb i prezentacja oferty")
+        with _nc2:
+            _new_freq = st.selectbox("Częstość", [1, 2, 3], index=1, key="new_ktask_freq",
+                                     help="1=rzadko  2=regularnie  3=często")
+        with _nc3:
+            _new_imp = st.selectbox("Ważność", [1, 2, 3], index=1, key="new_ktask_imp",
+                                    help="1=mała  2=średnia  3=wysoka")
+        with _nc4:
+            _new_diff = st.selectbox("Trudność", [1, 2, 3], index=1, key="new_ktask_diff",
+                                     help="1=prosta  2=umiarkowana  3=złożona")
+        if st.button("Dodaj zadanie", key="btn_add_ktask"):
+            if not _new_name.strip():
+                st.warning("Podaj nazwę zadania.")
+            else:
+                st.session_state["key_tasks_list"].append({
+                    "name": _new_name.strip(),
+                    "frequency": _new_freq,
+                    "importance": _new_imp,
+                    "difficulty": _new_diff,
+                })
+                for _k in ["new_ktask_name", "new_ktask_freq", "new_ktask_imp", "new_ktask_diff"]:
+                    st.session_state.pop(_k, None)
+                st.rerun()
 
     st.divider()
-    st.subheader("Krok 2: Wybierz kompetencje z katalogu (max 10)")
+    st.subheader("Krok 3: Wybierz kompetencje z katalogu (max 10)")
 
     selected_from_catalog: dict[str, list[str]] = {}
     cat_cols = st.columns(4)
@@ -411,17 +469,20 @@ with tab1:
         st.info("Wybierz kompetencje z katalogu lub dopisz własne.")
 
     st.divider()
-    st.subheader("Krok 3: Generuj opisy kompetencji")
+    st.subheader("Krok 4: Generuj opisy kompetencji")
 
     if st.button("Generuj profil kompetencji", type="primary",
                  disabled=(not api_key or total_count == 0 or total_count > 10)):
-        if not position or not tasks:
-            st.warning("Podaj nazwę stanowiska i kluczowe zadania (Krok 1).")
+        _curr_tasks = st.session_state.get("key_tasks_list", [])
+        if not position or not _curr_tasks:
+            st.warning("Podaj nazwę stanowiska i dodaj przynajmniej jedno zadanie (Krok 1–2).")
         else:
             company = CompanyProfile(
                 company_name=company_name, industry=industry, size=size,
                 culture_notes=culture, position_name=position, position_level=level,
-                key_tasks=tasks, additional_context=extra,
+                key_tasks=tasks_to_str(_curr_tasks),
+                key_tasks_list=_curr_tasks,
+                additional_context=extra,
             )
             with st.spinner(f"Generowanie opisów {total_count} kompetencji (30-90 sek.)..."):
                 try:
@@ -867,7 +928,10 @@ with tab_osp:
         if st.button("Wypełnij z profilu kompetencji", key="osp_fill_btn", type="primary"):
             st.session_state["_osp_nazwa"] = _osp_prof.company.position_name
             st.session_state["_osp_jednostka"] = _osp_prof.company.company_name
-            if _osp_prof.company.key_tasks:
+            if _osp_prof.company.key_tasks_list:
+                _osp_tasks = [t["name"] for t in _osp_prof.company.key_tasks_list if t.get("name")][:6]
+                st.session_state["_osp_zadania"] = "\n".join(_osp_tasks)
+            elif _osp_prof.company.key_tasks:
                 _osp_tasks = [t.strip() for t in _osp_prof.company.key_tasks.split("\n") if t.strip()][:6]
                 st.session_state["_osp_zadania"] = "\n".join(_osp_tasks)
             _osp_dm: dict = {}

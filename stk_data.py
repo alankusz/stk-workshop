@@ -20,8 +20,37 @@ class CompanyProfile:
     culture_notes: str = ""  # opis kultury organizacyjnej
     position_name: str = ""
     position_level: str = ""  # np. "specjalista", "kierownik", "dyrektor"
-    key_tasks: str = ""  # opis kluczowych zadań
+    key_tasks: str = ""  # legacy — wolny tekst (backwards compat)
+    key_tasks_list: list = field(default_factory=list)  # [{name, frequency, importance, difficulty}]
     additional_context: str = ""
+
+
+def task_priority(importance: int) -> str:
+    """Wyznacza priorytet zadania na podstawie ważnosci (1-3)."""
+    if importance == 3:
+        return "Wysoki"
+    elif importance == 2:
+        return "Sredni"
+    return "Niski"
+
+
+def tasks_to_str(tasks_list: list) -> str:
+    """Konwertuje liste zadan na tekst (dla AI prompt i eksportu tekstowego)."""
+    if not tasks_list:
+        return ""
+    lines = []
+    for t in tasks_list:
+        name = t.get("name", "").strip()
+        if not name:
+            continue
+        f = t.get("frequency", 2)
+        i = t.get("importance", 2)
+        d = t.get("difficulty", 2)
+        prio = task_priority(i)
+        lines.append(
+            f"{name} | czestotliwosc:{f}/3 | waznosc:{i}/3 | trudnosc:{d}/3 | priorytet:{prio}"
+        )
+    return "; ".join(lines)
 
 
 # ---------------------------------------------------------------------------

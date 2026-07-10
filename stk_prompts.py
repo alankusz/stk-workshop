@@ -168,9 +168,32 @@ ZASADY TWORZENIA PYTAŃ STK:
 # ---------------------------------------------------------------------------
 # Funkcje tworzące pełne prompty
 # ---------------------------------------------------------------------------
+def _format_tasks_for_prompt(tasks_list: list) -> str:
+    """Formatuje liste zadan jako czytelna tabele do promptu AI."""
+    if not tasks_list:
+        return "nie podano"
+    lines = ["Analiza pracy (skala 1-3):"]
+    for t in tasks_list:
+        name = t.get("name", "").strip()
+        if not name:
+            continue
+        f = t.get("frequency", 2)
+        i = t.get("importance", 2)
+        d = t.get("difficulty", 2)
+        prio = "Wysoki" if i == 3 else ("Sredni" if i == 2 else "Niski")
+        lines.append(f"  - {name} | czestotliwosc:{f}/3 | waznosc:{i}/3 | trudnosc:{d}/3 | priorytet:{prio}")
+    lines.append("Zadania o wysokim priorytecie wyznaczaja kompetencje kluczowe.")
+    return "\n".join(lines)
+
+
 def build_profile_prompt(company: dict, selected_names: list[str]) -> str:
     """Buduje user prompt do generowania profilu kompetencji."""
     names_str = "\n".join(f"- {n}" for n in selected_names) if selected_names else "Brak — dobierz sam."
+    tasks_list = company.get("key_tasks_list", [])
+    if tasks_list:
+        tasks_text = _format_tasks_for_prompt(tasks_list)
+    else:
+        tasks_text = company.get("key_tasks", "nie podano") or "nie podano"
     return f"""Stwórz opisy kompetencji na 5 poziomach (1-5) dla poniższych kompetencji w kontekście firmy i stanowiska.
 
 FIRMA:
@@ -182,7 +205,8 @@ FIRMA:
 STANOWISKO:
 - Nazwa: {company.get('position_name', 'nie podano')}
 - Poziom: {company.get('position_level', 'nie podano')}
-- Kluczowe zadania: {company.get('key_tasks', 'nie podano')}
+- Kluczowe zadania:
+{tasks_text}
 - Dodatkowy kontekst: {company.get('additional_context', 'nie podano')}
 
 KOMPETENCJE DO OPISANIA:

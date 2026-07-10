@@ -22,7 +22,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-from stk_data import STKResult, STKTest, CompetencyProfile, NeedsAssessment, CATEGORY_LABELS, LEVEL_LABELS, LEVEL_KEYS
+from stk_data import STKResult, STKTest, CompetencyProfile, NeedsAssessment, CATEGORY_LABELS, LEVEL_LABELS, LEVEL_KEYS, task_priority, tasks_to_str
 from stk_stats import (
     alpha_interpretation, cohen_dz_interpretation, item_analysis,
     paired_prepost_analysis, reliability_block, required_n_paired,
@@ -130,6 +130,50 @@ def _competency_level_table(doc: Document, comp: "Competency",
                 _set_cell_bg(row_cells[j], "1B4F8A")
                 run.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
                 run.font.bold = True
+
+    doc.add_paragraph()
+
+
+def _key_tasks_table(doc: Document, tasks_list: list) -> None:
+    """Tabela analizy pracy: Zadanie | Czestotliwosc | Waznosc | Trudnosc | Priorytet."""
+    if not tasks_list:
+        return
+
+    COL_W = [Cm(8.0), Cm(2.2), Cm(2.2), Cm(2.2), Cm(2.4)]
+    table = doc.add_table(rows=1, cols=5)
+    table.style = "Table Grid"
+
+    hdr = table.rows[0]
+    for j, h in enumerate(["Zadanie", "Czestotliwosc", "Waznosc", "Trudnosc", "Priorytet"]):
+        cell = hdr.cells[j]
+        cell.text = ""
+        run = cell.paragraphs[0].add_run(h)
+        run.font.name = FONT
+        run.font.size = Pt(9)
+        run.font.bold = True
+        run.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+        _set_cell_bg(cell, "1B4F8A")
+        cell.width = COL_W[j]
+
+    for task in tasks_list:
+        name = task.get("name", "").strip()
+        if not name:
+            continue
+        f = task.get("frequency", 2)
+        i = task.get("importance", 2)
+        d = task.get("difficulty", 2)
+        prio = task_priority(i)
+        row_cells = table.add_row().cells
+        for j, val in enumerate([name, str(f), str(i), str(d), prio]):
+            row_cells[j].text = ""
+            run = row_cells[j].paragraphs[0].add_run(val)
+            run.font.name = FONT
+            run.font.size = Pt(9)
+            run.font.bold = (j == 0)
+            if j == 4:
+                color = EA_NAVY if prio == "Wysoki" else EA_GRAY
+                run.font.color.rgb = color
+            row_cells[j].width = COL_W[j]
 
     doc.add_paragraph()
 
@@ -680,7 +724,11 @@ def build_combined_docx(profiles: list[CompetencyProfile],
         pos_r.font.color.rgb = EA_NAVY
 
         _para(doc, f"{c.company_name}  |  {c.industry}  |  {c.size}  |  Poziom: {c.position_level}", gray=True)
-        if c.key_tasks:
+        if c.key_tasks_list:
+            _heading(doc, "Analiza pracy — kluczowe zadania", level=3)
+            _para(doc, "Zadania oceniane w skali 1-3. Zadania o wysokiej waznosci i trudnosci wyznaczaja kompetencje kluczowe.", gray=True)
+            _key_tasks_table(doc, c.key_tasks_list)
+        elif c.key_tasks:
             _para(doc, f"Kluczowe zadania: {c.key_tasks}", italic=True)
 
         # Wykres radarowy
@@ -783,6 +831,15 @@ def build_profile_docx(profile: CompetencyProfile,
         chart_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         chart_p.add_run().add_picture(io.BytesIO(png), width=Inches(4.5))
     doc.add_page_break()
+
+    # --- Analiza pracy ---
+    if profile.company.key_tasks_list:
+        _heading(doc, "Analiza pracy — kluczowe zadania", level=1)
+        _para(doc, "Zadania oceniane w skali 1-3. Zadania o wysokiej waznosci i trudnosci wyznaczaja kompetencje kluczowe.", gray=True)
+        _key_tasks_table(doc, profile.company.key_tasks_list)
+    elif profile.company.key_tasks:
+        _heading(doc, "Kluczowe zadania", level=1)
+        _para(doc, profile.company.key_tasks, italic=True)
 
     # --- Kompetencje ---
     desired_map: dict[str, int] = {}
@@ -1073,7 +1130,7 @@ def build_combined_xlsx(profiles: list[CompetencyProfile]) -> bytes:
             ("Branża", profile.company.industry),
             ("Wielkość", profile.company.size),
             ("Poziom", profile.company.position_level),
-            ("Kluczowe zadania", profile.company.key_tasks),
+            ("Kluczowe zadania", tasks_to_str(profile.company.key_tasks_list) if profile.company.key_tasks_list else profile.company.key_tasks),
         ]
         for ri, (label, val) in enumerate(info, start=2):
             _cell(ws, ri, 1, label, bold=True, bg=_LIGHT_HEX)
