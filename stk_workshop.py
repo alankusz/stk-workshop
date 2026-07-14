@@ -173,7 +173,7 @@ def _reset_form() -> None:
         "profile", "needs_assessment", "company", "custom_competencies",
         "c_name", "c_industry", "c_size", "c_level", "c_culture",
         "c_position", "c_tasks", "c_extra", "custom_comp_name",
-        "assess_name", "incidents", "key_tasks_list",
+        "assess_name", "assess_role", "incidents", "key_tasks_list",
     ]
     for key in keys_to_clear:
         st.session_state.pop(key, None)
@@ -214,6 +214,7 @@ def _serialize_draft() -> dict:
             "c_culture": state.get("c_culture", ""),
             "c_extra": state.get("c_extra", ""),
             "assess_name": state.get("assess_name", ""),
+            "assess_role": state.get("assess_role", ""),
             "cat_select_S": list(state.get("cat_select_S", [])),
             "cat_select_O": list(state.get("cat_select_O", [])),
             "cat_select_M": list(state.get("cat_select_M", [])),
@@ -313,6 +314,8 @@ if "custom_competencies" not in st.session_state:
     st.session_state["custom_competencies"] = []
 if "incidents" not in st.session_state:
     st.session_state["incidents"] = []
+if "key_tasks_list" not in st.session_state:
+    st.session_state["key_tasks_list"] = []
 
 if not st.session_state.get("_session_initialized"):
     st.session_state["_session_initialized"] = True
@@ -322,7 +325,8 @@ if not st.session_state.get("_session_initialized"):
             _has_data = (
                 _draft.get("saved_positions") or
                 _draft.get("in_progress", {}).get("profile") or
-                _draft.get("in_progress", {}).get("incidents")
+                _draft.get("in_progress", {}).get("incidents") or
+                _draft.get("in_progress", {}).get("key_tasks_list")
             )
             if _has_data:
                 _restore_from_draft(_draft)
@@ -331,14 +335,16 @@ if not st.session_state.get("_session_initialized"):
         except Exception:
             pass
 
+# Autosave na każdym rerunie — zapobiega utracie danych gdy Streamlit resetuje sesję.
+# (Wywołanie po bloku inicjalizacji, by nie nadpisać pliku pustym stanem przy restore.)
+_autosave()
+
 # ---------------------------------------------------------------------------
-# Keep-alive: co 10 minut odświeża sesję (zapobiega timeoutowi) + autosave
+# Keep-alive: co 5 minut odświeża sesję (zapobiega timeoutowi)
 # ---------------------------------------------------------------------------
 try:
     from streamlit_autorefresh import st_autorefresh as _st_autorefresh
-    _keepalive_count = _st_autorefresh(interval=1_500_000, limit=None, key="session_keepalive")
-    if _keepalive_count and _keepalive_count > 0:
-        _autosave()
+    _st_autorefresh(interval=300_000, limit=None, key="session_keepalive")
 except ImportError:
     pass
 
