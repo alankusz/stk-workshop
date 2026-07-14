@@ -8,6 +8,9 @@ from __future__ import annotations
 import io
 import json
 import os
+from dataclasses import asdict
+from datetime import datetime
+from pathlib import Path
 
 import streamlit as st
 from openpyxl import Workbook
@@ -15,7 +18,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from stk_data import (
-    CompanyProfile, CompetencyProfile, NeedsAssessmentItem, NeedsAssessment,
+    CompanyProfile, CompetencyProfile, Competency, NeedsAssessmentItem, NeedsAssessment,
     CriticalIncident,
     LEVEL_LABELS, LEVEL_KEYS, LEVEL_COLORS,
     COMPETENCY_CATALOG, CATEGORY_LABELS,
@@ -184,6 +187,115 @@ def _reset_form() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Autosave / Restore
+# ---------------------------------------------------------------------------
+AUTOSAVE_PATH = Path.home() / ".stk_workshop_draft.json"
+
+
+def _serialize_draft() -> dict:
+    """Serializuje aktualny stan sesji do słownika."""
+    state = st.session_state
+    return {
+        "version": 1,
+        "saved_at": datetime.now().isoformat(timespec="seconds"),
+        "in_progress": {
+            "profile": asdict(state["profile"]) if "profile" in state else None,
+            "needs_assessment": asdict(state["needs_assessment"]) if "needs_assessment" in state else None,
+            "incidents": [inc.to_dict() for inc in state.get("incidents", [])],
+            "key_tasks_list": list(state.get("key_tasks_list", [])),
+            "custom_competencies": list(state.get("custom_competencies", [])),
+        },
+        "form_fields": {
+            "c_name": state.get("c_name", ""),
+            "c_industry": state.get("c_industry", ""),
+            "c_size": state.get("c_size", ""),
+            "c_position": state.get("c_position", ""),
+            "c_level": state.get("c_level", ""),
+            "c_culture": state.get("c_culture", ""),
+            "c_extra": state.get("c_extra", ""),
+            "assess_name": state.get("assess_name", ""),
+            "cat_select_S": list(state.get("cat_select_S", [])),
+            "cat_select_O": list(state.get("cat_select_O", [])),
+            "cat_select_M": list(state.get("cat_select_M", [])),
+            "cat_select_Z": list(state.get("cat_select_Z", [])),
+            **{k: v for k, v in state.items()
+               if k.startswith("_osp_") and isinstance(v, (str, int, float, bool, list))},
+        },
+        "saved_positions": [
+            {
+                "profile": asdict(e["profile"]),
+                "needs_assessment": asdict(e["needs"]) if e.get("needs") else None,
+                "incidents": [i.to_dict() for i in e.get("incidents", [])],
+            }
+            for e in state.get("saved_positions", [])
+        ],
+    }
+
+
+def _restore_from_draft(draft: dict) -> None:
+    """Przywraca stan sesji z zapisanego słownika."""
+
+    def _make_profile(pd: dict) -> CompetencyProfile:
+        cp_fields = set(CompanyProfile.__dataclass_fields__)
+        comp_fields = set(Competency.__dataclass_fields__)
+        return CompetencyProfile(
+            company=CompanyProfile(**{k: v for k, v in pd.get("company", {}).items() if k in cp_fields}),
+            competencies=[Competency(**{k: v for k, v in c.items() if k in comp_fields}) for c in pd.get("competencies", [])],
+            created_at=pd.get("created_at", ""),
+        )
+
+    def _make_needs(na_d: dict):
+        ni_fields = set(NeedsAssessmentItem.__dataclass_fields__)
+        return NeedsAssessment(
+            assessor_name=na_d.get("assessor_name", ""),
+            assessor_role=na_d.get("assessor_role", ""),
+            notes=na_d.get("notes", ""),
+            items=[NeedsAssessmentItem(**{k: v for k, v in it.items() if k in ni_fields}) for it in na_d.get("items", [])],
+        )
+
+    # Saved positions
+    sp = []
+    for pos_data in draft.get("saved_positions", []):
+        pd = pos_data.get("profile")
+        if not pd:
+            continue
+        na_d = pos_data.get("needs_assessment")
+        sp.append({
+            "profile": _make_profile(pd),
+            "needs": _make_needs(na_d) if na_d else None,
+            "incidents": [CriticalIncident.from_dict(i) for i in pos_data.get("incidents", [])],
+        })
+    st.session_state["saved_positions"] = sp
+
+    # In-progress
+    ip = draft.get("in_progress", {})
+    pd = ip.get("profile")
+    if pd:
+        st.session_state["profile"] = _make_profile(pd)
+    na_d = ip.get("needs_assessment")
+    if na_d:
+        st.session_state["needs_assessment"] = _make_needs(na_d)
+    st.session_state["incidents"] = [CriticalIncident.from_dict(i) for i in ip.get("incidents", [])]
+    st.session_state["key_tasks_list"] = ip.get("key_tasks_list", [])
+    st.session_state["custom_competencies"] = ip.get("custom_competencies", [])
+
+    # Form fields (widgets + OSP)
+    for key, val in draft.get("form_fields", {}).items():
+        st.session_state[key] = val
+
+
+def _autosave() -> None:
+    """Zapisuje stan sesji do pliku (best-effort)."""
+    try:
+        AUTOSAVE_PATH.write_text(
+            json.dumps(_serialize_draft(), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
 # Page config
 # ---------------------------------------------------------------------------
 st.set_page_config(
@@ -193,7 +305,7 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------------------------
-# Session state
+# Session state + auto-restore
 # ---------------------------------------------------------------------------
 if "saved_positions" not in st.session_state:
     st.session_state["saved_positions"] = []
@@ -202,12 +314,44 @@ if "custom_competencies" not in st.session_state:
 if "incidents" not in st.session_state:
     st.session_state["incidents"] = []
 
+if not st.session_state.get("_session_initialized"):
+    st.session_state["_session_initialized"] = True
+    if AUTOSAVE_PATH.exists():
+        try:
+            _draft = json.loads(AUTOSAVE_PATH.read_text(encoding="utf-8"))
+            _has_data = (
+                _draft.get("saved_positions") or
+                _draft.get("in_progress", {}).get("profile") or
+                _draft.get("in_progress", {}).get("incidents")
+            )
+            if _has_data:
+                _restore_from_draft(_draft)
+                st.session_state["_restored_from"] = _draft.get("saved_at", "?")
+                st.rerun()
+        except Exception:
+            pass
+
+# ---------------------------------------------------------------------------
+# Keep-alive: co 10 minut odświeża sesję (zapobiega timeoutowi) + autosave
+# ---------------------------------------------------------------------------
+try:
+    from streamlit_autorefresh import st_autorefresh as _st_autorefresh
+    _keepalive_count = _st_autorefresh(interval=1_500_000, limit=None, key="session_keepalive")
+    if _keepalive_count and _keepalive_count > 0:
+        _autosave()
+except ImportError:
+    pass
+
 # ---------------------------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------------------------
 with st.sidebar:
     st.header("Profil Kompetencji")
     st.caption("Narzędzie warsztatowe — Enterprise Advisors")
+
+    if st.session_state.get("_restored_from"):
+        _ts = st.session_state.pop("_restored_from")
+        st.success(f"Dane przywrócone z kopii ({_ts[:16]})", icon="♻️")
 
     # API key
     default_key = os.environ.get("ANTHROPIC_API_KEY", "")
@@ -309,6 +453,40 @@ with st.sidebar:
     else:
         st.info("Brak zapisanych stanowisk.\nUzupełnij profil i zapisz (zakładka 2).")
 
+    st.divider()
+    st.subheader("Kopia robocza")
+    if AUTOSAVE_PATH.exists():
+        try:
+            _at = json.loads(AUTOSAVE_PATH.read_text(encoding="utf-8")).get("saved_at", "")
+            st.caption(f"Autosave: {_at[:16] if _at else '?'}")
+        except Exception:
+            pass
+        if st.button("Wyczysc autosave", key="btn_clear_autosave"):
+            AUTOSAVE_PATH.unlink(missing_ok=True)
+            st.rerun()
+    else:
+        st.caption("Brak autosave.")
+    try:
+        _draft_bytes = json.dumps(_serialize_draft(), ensure_ascii=False, indent=2).encode("utf-8")
+        st.download_button(
+            "Pobierz kopię roboczą (JSON)",
+            data=_draft_bytes,
+            file_name="stk_kopia_robocza.json",
+            mime="application/json",
+            key="btn_dl_draft",
+        )
+    except Exception:
+        pass
+    _uploaded_draft = st.file_uploader("Wgraj kopię roboczą", type=["json"], key="draft_uploader")
+    if _uploaded_draft:
+        try:
+            _ud = json.loads(_uploaded_draft.read().decode("utf-8"))
+            _restore_from_draft(_ud)
+            st.session_state["_restored_from"] = _ud.get("saved_at", "plik")
+            st.rerun()
+        except Exception as _ue:
+            st.error(f"Błąd wgrywania: {_ue}")
+
 
 # ---------------------------------------------------------------------------
 # Zakładki
@@ -406,6 +584,7 @@ with tab1:
                 })
                 for _k in ["new_ktask_name", "new_ktask_freq", "new_ktask_imp", "new_ktask_diff"]:
                     st.session_state.pop(_k, None)
+                _autosave()
                 st.rerun()
 
     st.divider()
@@ -489,6 +668,7 @@ with tab1:
                     profile = generate_competency_profile(company, all_selected, api_key)
                     st.session_state["profile"] = profile
                     st.session_state["company"] = company
+                    _autosave()
                     st.success(
                         f"Wygenerowano {len(profile.competencies)} kompetencji. "
                         "Przejdź do zakładki 2 → ustaw poziomy oczekiwane i zapisz stanowisko."
@@ -558,6 +738,7 @@ with tab1:
                             setattr(comp, f"level_{lk}",
                                     st.session_state[f"edit_lv_{i}_{lk}"])
                         st.session_state["profile"] = profile
+                        _autosave()
                         st.rerun()
 
                 if st.button(f"Usuń kompetencję '{comp.name}'", key=f"rm_comp_{i}"):
@@ -588,6 +769,7 @@ with tab1:
                     new_comp = generate_single_competency(new_comp_name.strip(), company, api_key)
                     profile.competencies.append(new_comp)
                     st.session_state["profile"] = profile
+                    _autosave()
                     st.success(f"Dodano: {new_comp.name}")
                     st.rerun()
                 except Exception as e:
@@ -705,6 +887,7 @@ with tab2:
                     "incidents": list(st.session_state.get("incidents", [])),
                 })
                 n = len(st.session_state["saved_positions"])
+                _autosave()
                 _reset_form()
                 st.success(f"Stanowisko #{n} zapisane! Formularz zresetowany — możesz dodać kolejne.")
                 st.rerun()
@@ -830,6 +1013,7 @@ with tab3:
                 for key in ["inc_comp_new", "inc_sit_new", "inc_actors_new", "inc_act_new",
                             "inc_reas_new", "inc_res_new", "inc_best_new", "inc_worst_new"]:
                     st.session_state.pop(key, None)
+                _autosave()
                 st.success(f"Dodano incydent #{len(st.session_state['incidents'])} dla kompetencji: {inc_comp}")
                 st.rerun()
 
