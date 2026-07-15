@@ -8,8 +8,9 @@ from __future__ import annotations
 import io
 import json
 import os
+import uuid
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import streamlit as st
@@ -187,9 +188,30 @@ def _reset_form() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Autosave / Restore
+# Autosave / Restore — per session (izolacja między uczestnikami warsztatu)
 # ---------------------------------------------------------------------------
-AUTOSAVE_PATH = Path.home() / ".stk_workshop_draft.json"
+AUTOSAVE_DIR = Path.home() / ".stk_workshop_sessions"
+
+
+def _autosave_path() -> Path:
+    """Zwraca ścieżkę autosave specyficzną dla tej sesji przeglądarki."""
+    if "_session_id" not in st.session_state:
+        st.session_state["_session_id"] = str(uuid.uuid4())
+    AUTOSAVE_DIR.mkdir(exist_ok=True)
+    return AUTOSAVE_DIR / f"{st.session_state['_session_id']}.json"
+
+
+def _cleanup_old_sessions(max_age_hours: int = 24) -> None:
+    """Usuwa pliki autosave starsze niż max_age_hours."""
+    if not AUTOSAVE_DIR.exists():
+        return
+    cutoff = datetime.now() - timedelta(hours=max_age_hours)
+    for f in AUTOSAVE_DIR.glob("*.json"):
+        try:
+            if datetime.fromtimestamp(f.stat().st_mtime) < cutoff:
+                f.unlink(missing_ok=True)
+        except Exception:
+            pass
 
 
 def _serialize_draft() -> dict:
@@ -286,9 +308,9 @@ def _restore_from_draft(draft: dict) -> None:
 
 
 def _autosave() -> None:
-    """Zapisuje stan sesji do pliku (best-effort)."""
+    """Zapisuje stan sesji do pliku specyficznego dla tej sesji (best-effort)."""
     try:
-        AUTOSAVE_PATH.write_text(
+        _autosave_path().write_text(
             json.dumps(_serialize_draft(), ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
@@ -319,9 +341,11 @@ if "key_tasks_list" not in st.session_state:
 
 if not st.session_state.get("_session_initialized"):
     st.session_state["_session_initialized"] = True
-    if AUTOSAVE_PATH.exists():
+    _cleanup_old_sessions()
+    _my_path = _autosave_path()
+    if _my_path.exists():
         try:
-            _draft = json.loads(AUTOSAVE_PATH.read_text(encoding="utf-8"))
+            _draft = json.loads(_my_path.read_text(encoding="utf-8"))
             _has_data = (
                 _draft.get("saved_positions") or
                 _draft.get("in_progress", {}).get("profile") or
@@ -461,14 +485,15 @@ with st.sidebar:
 
     st.divider()
     st.subheader("Kopia robocza")
-    if AUTOSAVE_PATH.exists():
+    _my_autosave = _autosave_path()
+    if _my_autosave.exists():
         try:
-            _at = json.loads(AUTOSAVE_PATH.read_text(encoding="utf-8")).get("saved_at", "")
+            _at = json.loads(_my_autosave.read_text(encoding="utf-8")).get("saved_at", "")
             st.caption(f"Autosave: {_at[:16] if _at else '?'}")
         except Exception:
             pass
         if st.button("Wyczysc autosave", key="btn_clear_autosave"):
-            AUTOSAVE_PATH.unlink(missing_ok=True)
+            _my_autosave.unlink(missing_ok=True)
             st.rerun()
     else:
         st.caption("Brak autosave.")
